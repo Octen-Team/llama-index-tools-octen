@@ -32,6 +32,89 @@ response = await agent.run(
 print(response)
 ```
 
+### Basic Search
+
+```python
+from llama_index.tools.octen import OctenToolSpec
+
+tool = OctenToolSpec(api_key=os.environ["OCTEN_API_KEY"])
+
+results = tool.search("latest AI research papers", num_results=5)
+for r in results:
+    print(r["title"], r["url"])
+```
+
+### Search with Domain Filtering
+
+```python
+results = tool.search(
+    "machine learning",
+    include_domains=["arxiv.org", "papers.nips.cc"],
+)
+
+results = tool.search(
+    "Python tutorial",
+    exclude_domains=["youtube.com", "reddit.com"],
+)
+```
+
+### Search with Time Filter
+
+```python
+tool = OctenToolSpec(api_key=os.environ["OCTEN_API_KEY"])
+
+results = tool.search(
+    "Python release notes",
+    start_time="2025-01-01",
+    end_time="2026-03-31",
+    time_basis="published",
+)
+```
+
+### Retrieve Full Page Content
+
+```python
+tool = OctenToolSpec(api_key=os.environ["OCTEN_API_KEY"], max_characters=3000)
+
+# Returns List[Document], each Document.text contains the full page content
+docs = tool.search_and_retrieve_documents(
+    query="Python 3.13 new features",
+    num_results=3,
+    include_domains=["docs.python.org"],
+)
+
+for doc in docs:
+    print(doc.metadata["title"], doc.metadata["url"])
+    print(doc.text[:200])
+```
+
+### Retrieve Highlighted Snippets
+
+```python
+# Returns List[Document], each Document.text contains a concise snippet
+highlights = tool.search_and_retrieve_highlights(
+    query="LlamaIndex agent tutorial",
+    num_results=5,
+    highlight_max_tokens=300,
+)
+
+for doc in highlights:
+    print(doc.metadata["title"])
+    print(doc.text)
+```
+
+### Text Filters and Safe Search
+
+```python
+results = tool.search(
+    "Python web framework",
+    include_text=["async"],
+    exclude_text=["deprecated"],
+    safesearch="strict",
+    format="markdown",
+)
+```
+
 ## Available Tools
 
 - `search`: Search the web using Octen for a list of results matching a natural language query.
