@@ -26,6 +26,7 @@ class OctenToolSpec(BaseToolSpec):
         verbose: bool = True,
         max_results: int = 5,
         max_characters: int = 2000,
+        timeout: Optional[float] = None,
     ) -> None:
         """Initialize with parameters.
 
@@ -34,11 +35,13 @@ class OctenToolSpec(BaseToolSpec):
             verbose: Whether to print search metadata.
             max_results: Default number of results to return.
             max_characters: Max characters for full content retrieval.
+            timeout: Request timeout in seconds.
         """
         self._api_key = api_key
         self._verbose = verbose
         self._max_results = max_results
         self._max_characters = max_characters
+        self._timeout = timeout
 
     def _get_client(self) -> Any:
         """Create a new Octen client."""
@@ -56,6 +59,8 @@ class OctenToolSpec(BaseToolSpec):
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         time_basis: Optional[str] = None,
+        include_text: Optional[List[str]] = None,
+        exclude_text: Optional[List[str]] = None,
         safesearch: Optional[str] = None,
         format: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -76,10 +81,16 @@ class OctenToolSpec(BaseToolSpec):
             kwargs["end_time"] = end_time
         if time_basis is not None:
             kwargs["time_basis"] = time_basis
+        if include_text:
+            kwargs["include_text"] = include_text
+        if exclude_text:
+            kwargs["exclude_text"] = exclude_text
         if safesearch is not None:
             kwargs["safesearch"] = safesearch
         if format is not None:
             kwargs["format"] = format
+        if self._timeout is not None:
+            kwargs["timeout"] = self._timeout
         return kwargs
 
     def search(
@@ -92,6 +103,10 @@ class OctenToolSpec(BaseToolSpec):
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         time_basis: Optional[str] = None,
+        include_text: Optional[List[str]] = None,
+        exclude_text: Optional[List[str]] = None,
+        safesearch: Optional[str] = None,
+        format: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Search the web using Octen.
 
@@ -104,6 +119,10 @@ class OctenToolSpec(BaseToolSpec):
             start_time: Start date filter, e.g. "2024-01-01". Use `current_date` to get today's date.
             end_time: End date filter.
             time_basis: Time filter basis - "auto", "published", or "crawled".
+            include_text: Text that must appear in results.
+            exclude_text: Text to exclude from results.
+            safesearch: Safe search mode - "off" or "strict".
+            format: Result format - "text" or "markdown".
         """
         kwargs = self._build_kwargs(
             query,
@@ -114,6 +133,10 @@ class OctenToolSpec(BaseToolSpec):
             start_time=start_time,
             end_time=end_time,
             time_basis=time_basis,
+            include_text=include_text,
+            exclude_text=exclude_text,
+            safesearch=safesearch,
+            format=format,
         )
         client = self._get_client()
         try:
@@ -147,6 +170,10 @@ class OctenToolSpec(BaseToolSpec):
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         time_basis: Optional[str] = None,
+        include_text: Optional[List[str]] = None,
+        exclude_text: Optional[List[str]] = None,
+        safesearch: Optional[str] = None,
+        format: Optional[str] = None,
     ) -> List[Document]:
         """Search and retrieve full page content as Documents.
 
@@ -159,6 +186,10 @@ class OctenToolSpec(BaseToolSpec):
             start_time: Start date filter, e.g. "2024-01-01".
             end_time: End date filter.
             time_basis: "auto", "published", or "crawled".
+            include_text: Text that must appear in results.
+            exclude_text: Text to exclude from results.
+            safesearch: Safe search mode - "off" or "strict".
+            format: Result format - "text" or "markdown".
         """
         from octen.models.search import FullContentOptions
 
@@ -171,6 +202,10 @@ class OctenToolSpec(BaseToolSpec):
             start_time=start_time,
             end_time=end_time,
             time_basis=time_basis,
+            include_text=include_text,
+            exclude_text=exclude_text,
+            safesearch=safesearch,
+            format=format,
         )
         kwargs["full_content"] = FullContentOptions(
             enable=True, max_tokens=self._max_characters
@@ -210,6 +245,10 @@ class OctenToolSpec(BaseToolSpec):
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         time_basis: Optional[str] = None,
+        include_text: Optional[List[str]] = None,
+        exclude_text: Optional[List[str]] = None,
+        safesearch: Optional[str] = None,
+        format: Optional[str] = None,
         highlight_max_tokens: Optional[int] = 200,
     ) -> List[Document]:
         """Search and retrieve highlighted snippets as Documents.
@@ -223,6 +262,10 @@ class OctenToolSpec(BaseToolSpec):
             start_time: Start date filter.
             end_time: End date filter.
             time_basis: "auto", "published", or "crawled".
+            include_text: Text that must appear in results.
+            exclude_text: Text to exclude from results.
+            safesearch: Safe search mode - "off" or "strict".
+            format: Result format - "text" or "markdown".
             highlight_max_tokens: Max tokens for highlighted snippets.
         """
         from octen.models.search import HighlightOptions
@@ -236,6 +279,10 @@ class OctenToolSpec(BaseToolSpec):
             start_time=start_time,
             end_time=end_time,
             time_basis=time_basis,
+            include_text=include_text,
+            exclude_text=exclude_text,
+            safesearch=safesearch,
+            format=format,
         )
         kwargs["highlight"] = HighlightOptions(
             enable=True, max_tokens=highlight_max_tokens or 200
