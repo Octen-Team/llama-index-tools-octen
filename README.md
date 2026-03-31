@@ -49,7 +49,8 @@ print(response)
 | `api_key` | `str` | required | Octen API key |
 | `verbose` | `bool` | `True` | Print search metadata |
 | `max_results` | `int` | `5` | Default number of results |
-| `max_characters` | `int` | `2000` | Max characters for full content |
+| `max_characters` | `int` | `2000` | Max characters for full content retrieval |
+| `timeout` | `float` | `None` | Request timeout in seconds |
 
 ### Per-query Parameters
 
@@ -65,3 +66,13 @@ All search functions support:
 | `start_time` | `str` | Start date filter (ISO 8601) |
 | `end_time` | `str` | End date filter (ISO 8601) |
 | `time_basis` | `str` | `auto`, `published`, or `crawled` |
+| `include_text` | `list[str]` | Text that must appear in results |
+| `exclude_text` | `list[str]` | Text to exclude from results |
+| `safesearch` | `str` | `off` or `strict` |
+| `format` | `str` | `text` or `markdown` |
+
+`search_and_retrieve_highlights` additionally supports:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `highlight_max_tokens` | `int` | Max tokens for highlighted snippets (default: 200) |
