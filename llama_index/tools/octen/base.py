@@ -1,10 +1,53 @@
 """Octen tool spec - web search API for AI."""
 
 import datetime
-from typing import Any, Dict, List, Optional
+import os
+import warnings
+from typing import Any, Dict, FrozenSet, List, Optional
 
 from llama_index.core.schema import Document
 from llama_index.core.tools.tool_spec.base import BaseToolSpec
+
+_SEARCH_TYPE_DEPRECATION = (
+    "search_type is deprecated and ignored: the Octen API no longer takes it. "
+    "It will be removed in a future release."
+)
+
+_COMMON_OPTIONS = frozenset({"count", "highlight", "full_content", "timeout"})
+
+# Developer-owned options per endpoint. Everything else is either model-facing
+# or not exposed, so it is rejected at construction.
+_ALLOWED_OPTIONS: Dict[str, FrozenSet[str]] = {
+    "broad_search_options": _COMMON_OPTIONS | {"max_queries"},
+    "news_search_options": _COMMON_OPTIONS | {"subjects"},
+    "business_search_options": _COMMON_OPTIONS | {"entities"},
+    "pulse_search_options": _COMMON_OPTIONS | {"mode"},
+    "place_search_options": frozenset({"places", "web_search", "timeout"}),
+}
+
+
+def _classify(exc: Exception) -> Optional[str]:
+    """Return the message to hand to the model, or None if exc must be raised.
+
+    Configuration errors (bad key, no access or balance, invalid developer
+    options) go to the developer; transient errors and server 400/422, which
+    almost always come from a model-supplied filter, go to the model.
+    """
+    from octen import (
+        OctenAPIError,
+        OctenConnectionError,
+        OctenRateLimitError,
+        OctenTimeoutError,
+    )
+
+    if isinstance(exc, (OctenRateLimitError, OctenTimeoutError, OctenConnectionError)):
+        return str(exc)
+    # 401 (OctenAuthenticationError), 403 and other 4xx fall through to raise.
+    if isinstance(exc, OctenAPIError):
+        status = exc.status_code
+        if status is not None and (status in (400, 422) or status >= 500):
+            return str(exc)
+    return None
 
 
 class OctenToolSpec(BaseToolSpec):
@@ -22,32 +65,80 @@ class OctenToolSpec(BaseToolSpec):
 
     def __init__(
         self,
-        api_key: str,
+        api_key: Optional[str] = None,
         verbose: bool = True,
         max_results: int = 5,
         max_characters: int = 2000,
         timeout: Optional[float] = None,
+        *,
+        broad_search_options: Optional[Dict[str, Any]] = None,
+        news_search_options: Optional[Dict[str, Any]] = None,
+        business_search_options: Optional[Dict[str, Any]] = None,
+        pulse_search_options: Optional[Dict[str, Any]] = None,
+        place_search_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize with parameters.
 
         Args:
-            api_key: Octen API key from https://octen.ai
+            api_key: Octen API key from https://octen.ai. Defaults to the
+                OCTEN_API_KEY environment variable.
             verbose: Whether to print search metadata.
             max_results: Default number of results to return.
             max_characters: Max characters for full content retrieval.
             timeout: Request timeout in seconds.
+            broad_search_options: Options sent on every broad_search call:
+                count, highlight, full_content, max_queries, timeout.
+            news_search_options: Options sent on every news_search call:
+                count, highlight, full_content, subjects, timeout.
+            business_search_options: Options sent on every business_search
+                call: count, highlight, full_content, entities, timeout.
+            pulse_search_options: Options sent on every pulse_search call:
+                count, highlight, full_content, mode, timeout.
+            place_search_options: Options sent on every place_search call:
+                places, web_search, timeout.
+
+        Raises:
+            ValueError: if no API key is available, or an options dict holds
+                a key that is not allowed for its endpoint.
         """
-        self._api_key = api_key
+        resolved_key = api_key if api_key is not None else os.environ.get("OCTEN_API_KEY")
+        if not resolved_key:
+            raise ValueError(
+                "No Octen API key: pass api_key or set the OCTEN_API_KEY environment variable."
+            )
+        given = {
+            "broad_search_options": broad_search_options,
+            "news_search_options": news_search_options,
+            "business_search_options": business_search_options,
+            "pulse_search_options": pulse_search_options,
+            "place_search_options": place_search_options,
+        }
+        self._options: Dict[str, Dict[str, Any]] = {}
+        for name, options in given.items():
+            options = dict(options or {})
+            unknown = sorted(set(options) - _ALLOWED_OPTIONS[name])
+            if unknown:
+                raise ValueError(
+                    f"{name} does not accept {', '.join(unknown)}; "
+                    f"allowed keys: {', '.join(sorted(_ALLOWED_OPTIONS[name]))}"
+                )
+            self._options[name] = options
+
+        self._api_key = resolved_key
         self._verbose = verbose
         self._max_results = max_results
         self._max_characters = max_characters
         self._timeout = timeout
 
     def _get_client(self) -> Any:
-        """Create a new Octen client."""
+        """Create a new Octen client.
+
+        Retries after the request is sent are off: such a request may already
+        have been served and billed.
+        """
         from octen import Octen
 
-        return Octen(api_key=self._api_key)
+        return Octen(api_key=self._api_key, retry_after_send=False)
 
     def _build_kwargs(
         self,
@@ -55,7 +146,6 @@ class OctenToolSpec(BaseToolSpec):
         num_results: Optional[int] = None,
         include_domains: Optional[List[str]] = None,
         exclude_domains: Optional[List[str]] = None,
-        search_type: Optional[str] = None,
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         time_basis: Optional[str] = None,
@@ -69,8 +159,6 @@ class OctenToolSpec(BaseToolSpec):
             "query": query,
             "count": num_results or self._max_results,
         }
-        if search_type is not None:
-            kwargs["search_type"] = search_type
         if include_domains:
             kwargs["include_domains"] = include_domains
         if exclude_domains:
@@ -115,7 +203,7 @@ class OctenToolSpec(BaseToolSpec):
             num_results: Number of results to return. Defaults to max_results.
             include_domains: A list of domains to restrict results to, e.g. ["arxiv.org"].
             exclude_domains: A list of domains to exclude from results.
-            search_type: Search mode - "auto", "keyword", or "semantic".
+            search_type: Deprecated and ignored.
             start_time: Start date filter, e.g. "2024-01-01". Use `current_date` to get today's date.
             end_time: End date filter.
             time_basis: Time filter basis - "auto", "published", or "crawled".
@@ -124,12 +212,13 @@ class OctenToolSpec(BaseToolSpec):
             safesearch: Safe search mode - "off" or "strict".
             format: Result format - "text" or "markdown".
         """
+        if search_type is not None:
+            warnings.warn(_SEARCH_TYPE_DEPRECATION, DeprecationWarning, stacklevel=2)
         kwargs = self._build_kwargs(
             query,
             num_results=num_results,
             include_domains=include_domains,
             exclude_domains=exclude_domains,
-            search_type=search_type,
             start_time=start_time,
             end_time=end_time,
             time_basis=time_basis,
@@ -182,7 +271,7 @@ class OctenToolSpec(BaseToolSpec):
             num_results: Number of results to return.
             include_domains: Domains to restrict results to.
             exclude_domains: Domains to exclude.
-            search_type: "auto", "keyword", or "semantic".
+            search_type: Deprecated and ignored.
             start_time: Start date filter, e.g. "2024-01-01".
             end_time: End date filter.
             time_basis: "auto", "published", or "crawled".
@@ -193,12 +282,13 @@ class OctenToolSpec(BaseToolSpec):
         """
         from octen.models.search import FullContentOptions
 
+        if search_type is not None:
+            warnings.warn(_SEARCH_TYPE_DEPRECATION, DeprecationWarning, stacklevel=2)
         kwargs = self._build_kwargs(
             query,
             num_results=num_results,
             include_domains=include_domains,
             exclude_domains=exclude_domains,
-            search_type=search_type,
             start_time=start_time,
             end_time=end_time,
             time_basis=time_basis,
@@ -258,7 +348,7 @@ class OctenToolSpec(BaseToolSpec):
             num_results: Number of results to return.
             include_domains: Domains to restrict results to.
             exclude_domains: Domains to exclude.
-            search_type: "auto", "keyword", or "semantic".
+            search_type: Deprecated and ignored.
             start_time: Start date filter.
             end_time: End date filter.
             time_basis: "auto", "published", or "crawled".
@@ -270,12 +360,13 @@ class OctenToolSpec(BaseToolSpec):
         """
         from octen.models.search import HighlightOptions
 
+        if search_type is not None:
+            warnings.warn(_SEARCH_TYPE_DEPRECATION, DeprecationWarning, stacklevel=2)
         kwargs = self._build_kwargs(
             query,
             num_results=num_results,
             include_domains=include_domains,
             exclude_domains=exclude_domains,
-            search_type=search_type,
             start_time=start_time,
             end_time=end_time,
             time_basis=time_basis,
