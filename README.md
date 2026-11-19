@@ -136,7 +136,7 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 | `pulse_search` | `query` | `count`, `highlight`, `full_content`, `mode`, `timeout` |
 | `place_search` | `query`, `latitude`, `longitude`, `radius`, `city`, `region`, `country`, `timezone` | `places`, `web_search`, `timeout` |
 
-- Options you leave out are not sent, so the API defaults apply. Values are passed to the [`octen`](https://pypi.org/project/octen/) SDK as-is (`dict`s or the SDK's option models). A key that is not listed for a function raises `ValueError` when the spec is built. `timeout` in an options dict overrides the spec-level `timeout` for that function.
+- Options you leave out are not sent, so the API defaults apply. Values are passed to the [`octen`](https://pypi.org/project/octen/) SDK as-is (`dict`s or the SDK's option models). They are checked when the spec is built: a key that is not listed for a function, or a value the SDK would reject (for example `count=1000`), raises `ValueError`. `timeout` in an options dict overrides the spec-level `timeout` for that function.
 - `time_range` is one of `day`, `week`, `month`, `year` (or `d`, `w`, `m`, `y`). `language` is a list of ISO 639-1 codes.
 - `place_search` needs `latitude` and `longitude` together, and `radius` only with both. `city`, `region`, `country` and `timezone` are sent as an approximate `user_location`, for when coordinates are unknown.
 
@@ -144,8 +144,18 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 
 **Errors.**
 
-- Raised to you (configuration problems): invalid API key (401), no access or insufficient balance (403), other 4xx responses, and `OctenValidationError` for invalid developer options such as `count=1000`.
-- Returned to the model as `{"error": "..."}`, so the agent can retry or adjust: rate limits (429), server errors (5xx), 400/422 responses, timeouts, connection errors, and invalid model arguments (for example `time_range="last week"`, a latitude without a longitude, or a radius without a point). Invalid model arguments are caught before any request is sent.
+- Raised to you (configuration problems): invalid API key (401), no access or insufficient balance (403), and other 4xx responses. Each one is also logged at `ERROR` level on the `llama_index.tools.octen` logger.
+- Returned to the model as `{"error": "..."}`, so the agent can retry or adjust: rate limits (429), server errors (5xx), 400/408/422 responses, error or malformed bodies behind a 2xx status, timeouts, connection errors, and invalid model arguments (for example `time_range="last week"`, a latitude without a longitude, or a radius without a point). Invalid model arguments are caught before any request is sent.
+
+> **Agent workflows hide raised errors.** LlamaIndex agent workflows (`FunctionAgent`, `ReActAgent`, `AgentWorkflow`) catch every exception a tool raises and pass its text to the model, so an invalid key or an exhausted balance shows up only as a failed tool call. Watch the `llama_index.tools.octen` logger, and check your setup by calling a function directly once before handing the tools to an agent:
+>
+> ```python
+> import logging
+> logging.basicConfig(level=logging.INFO)
+>
+> tool = OctenToolSpec(pulse_search_options={"count": 1})
+> print(tool.pulse_search("github docs"))  # raises here if the key or account is not usable
+> ```
 
 ## Available Tools
 
@@ -184,7 +194,7 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 
 ### Retries
 
-The spec creates its `octen` clients with `retry_after_send=False`: a request that timed out or lost its connection after it was sent is not retried, because it may already have been served and billed. Failures before the request is sent, and 408/429/5xx responses, are still retried. If you also call the `octen` SDK directly, consider passing `retry_after_send=False` there too.
+The spec creates its `octen` clients with `retry_after_send=False`, for all functions including `search`, `search_and_retrieve_documents` and `search_and_retrieve_highlights`: a request that timed out or lost its connection after it was sent is not retried, because it may already have been served and billed. Failures before the request is sent, and 408/429/5xx responses, are still retried. If you also call the `octen` SDK directly, consider passing `retry_after_send=False` there too.
 
 ### Per-query Parameters
 
@@ -196,7 +206,7 @@ The spec creates its `octen` clients with `retry_after_send=False`: a request th
 | `num_results` | `int` | Number of results (overrides default) |
 | `include_domains` | `list[str]` | Restrict to these domains |
 | `exclude_domains` | `list[str]` | Exclude these domains |
-| `search_type` | `str` | Deprecated and ignored; emits a `DeprecationWarning` |
+| `search_type` | `str` | Deprecated and ignored; emits a `FutureWarning` |
 | `start_time` | `str` | Start date filter (ISO 8601) |
 | `end_time` | `str` | End date filter (ISO 8601) |
 | `time_basis` | `str` | `auto`, `published`, or `crawled` |

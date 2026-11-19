@@ -8,7 +8,7 @@ import os
 from typing import Any, Dict
 
 import pytest
-from octen import OctenAuthenticationError, OctenValidationError
+from octen import OctenAuthenticationError
 
 from llama_index.tools.octen import OctenToolSpec
 
@@ -35,7 +35,7 @@ def test_live_search_ignores_search_type(mocker: Any) -> None:
     import octen.resources.search as sdk_search
 
     spy = mocker.spy(sdk_search.SearchResource, "search")
-    with pytest.warns(DeprecationWarning, match="search_type"):
+    with pytest.warns(FutureWarning, match="search_type"):
         results = _spec().search("Octen web search API", num_results=1, search_type="auto")
     assert results and results[0].get("url")
     assert "search_type" not in spy.call_args.kwargs
@@ -46,22 +46,31 @@ def test_live_search_ignores_search_type(mocker: Any) -> None:
 
 def test_live_broad_search() -> None:
     spec = _spec(broad_search_options={"count": 1, "max_queries": 1})
-    _check("broad_search", spec.broad_search("Python packaging tools comparison"))
+    result = spec.broad_search("Python packaging tools comparison")
+    _check("broad_search", result)
+    groups = result["data"]["search_results"]
+    assert any(group.get("results") for group in groups), groups
 
 
 def test_live_news_search() -> None:
     spec = _spec(news_search_options={"count": 1, "subjects": {"count": 1, "max_sub_news": 1}})
-    _check("news_search", spec.news_search("semiconductor industry", time_range="week"))
+    result = spec.news_search("semiconductor industry", time_range="week")
+    _check("news_search", result)
+    assert result["data"]["results"]
 
 
 def test_live_business_search() -> None:
     spec = _spec(business_search_options={"count": 1, "entities": {"count": 1}})
-    _check("business_search", spec.business_search("NVIDIA company overview"))
+    result = spec.business_search("NVIDIA company overview")
+    _check("business_search", result)
+    assert result["data"].get("results") or result["data"].get("entities")
 
 
 def test_live_pulse_search() -> None:
     spec = _spec(pulse_search_options={"count": 1})
-    _check("pulse_search", spec.pulse_search("github docs"))
+    result = spec.pulse_search("github docs")
+    _check("pulse_search", result)
+    assert result["data"]["results"]
 
 
 def test_live_place_search() -> None:
@@ -70,6 +79,11 @@ def test_live_place_search() -> None:
         "coffee shops", latitude=35.6812, longitude=139.7671, radius=1000
     )
     _check("place_search", result)
+    if result.get("warning") == "places_unavailable":
+        pytest.skip("place engine unavailable (warning places_unavailable)")
+    places = result["data"]["places"]
+    assert places
+    assert all(place.get("name") for place in places), places
 
 
 def test_live_bad_key_raises() -> None:
@@ -78,6 +92,6 @@ def test_live_bad_key_raises() -> None:
 
 
 def test_live_developer_count_out_of_range_raises() -> None:
-    # octen-py rejects this locally, before any request is sent.
-    with pytest.raises(OctenValidationError):
-        _spec(news_search_options={"count": 1000}).news_search("semiconductor industry")
+    # Rejected when the spec is built, before any request is sent.
+    with pytest.raises(ValueError, match="news_search_options.*count"):
+        _spec(news_search_options={"count": 1000})

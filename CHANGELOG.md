@@ -10,25 +10,36 @@
   billing-relevant options are set by the developer through the new
   `broad_search_options`, `news_search_options`, `business_search_options`,
   `pulse_search_options` and `place_search_options` constructor arguments.
+- Developer options are validated when the spec is built: an unknown key
+  or a value the `octen` SDK would reject (for example `count=1000`) raises
+  `ValueError`.
 - The new functions return `{"data", "request_id", "warning"}` (`warning`
   only when the API sent one). Configuration errors (invalid key, no access
-  or balance, invalid developer options) are raised; rate limits, server
-  errors, timeouts, connection errors and invalid model arguments come back
-  to the model as `{"error": "..."}`.
+  or balance, other 4xx) are raised and also logged at `ERROR` level on the
+  `llama_index.tools.octen` logger. Rate limits, server errors, 400/408/422,
+  error or malformed bodies behind a 2xx status, timeouts, connection errors
+  and invalid model arguments come back to the model as `{"error": "..."}`.
+- LlamaIndex agent workflows catch every exception a tool raises and hand
+  its text to the model, so a raised configuration error is not visible to
+  you there except through that log. Call a function directly once to check
+  your key and account before giving the tools to an agent.
 - `api_key` falls back to the `OCTEN_API_KEY` environment variable.
 
 ### Changed
 
 - Requires `octen>=0.12.0`.
-- Clients are created with `retry_after_send=False`: a request that timed
-  out or lost its connection after it was sent is no longer retried, since
-  it may already have been served and billed.
+- Clients are created with `retry_after_send=False`, for the new functions
+  and for the existing `search`, `search_and_retrieve_documents` and
+  `search_and_retrieve_highlights` alike: a request that timed out or lost
+  its connection after it was sent is no longer retried, since it may
+  already have been served and billed.
 
 ### Deprecated
 
 - `search_type` on `search`, `search_and_retrieve_documents` and
   `search_and_retrieve_highlights` is accepted but ignored and emits a
-  `DeprecationWarning`. The Octen API no longer takes it, and with
+  `FutureWarning` (shown by default, unlike `DeprecationWarning`). The Octen
+  API no longer takes it, and with
   `octen>=0.5.0` passing it raised `TypeError`. It will be removed in a
   future release.
 
