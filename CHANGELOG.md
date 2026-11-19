@@ -19,9 +19,9 @@
   `llama_index.tools.octen` logger. Rate limits, server errors, 400/408/422,
   error or malformed bodies behind a 2xx status, timeouts, connection errors
   and invalid model arguments come back to the model as `{"error": "..."}`.
-  When a timeout or connection error may have happened after the request
-  was sent, or a 2xx response carried an error or could not be read, that
-  text tells the model the call may already have been
+  For a 502 or 504, a timeout or connection error that may have happened
+  after the request was sent, or a 2xx response that carried an error or
+  could not be read, that text tells the model the call may already have been
   served and billed and should not be retried automatically.
 - LlamaIndex agent workflows catch every exception a tool raises and hand
   its text to the model, so a raised configuration error is not visible to

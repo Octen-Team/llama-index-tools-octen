@@ -18,6 +18,17 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(autouse=True)
+def _single_attempt_clients(monkeypatch: Any) -> None:
+    # Live calls are billed: no SDK retries here, so each test bills at most once.
+    from octen import Octen
+
+    def get_client(self: OctenToolSpec) -> Octen:
+        return Octen(api_key=self._api_key, retry_after_send=False, max_retries=0)
+
+    monkeypatch.setattr(OctenToolSpec, "_get_client", get_client)
+
+
 def _spec(**kwargs: Any) -> OctenToolSpec:
     return OctenToolSpec(verbose=False, **kwargs)
 
@@ -53,10 +64,17 @@ def test_live_broad_search() -> None:
 
 
 def test_live_news_search() -> None:
-    spec = _spec(news_search_options={"count": 1, "subjects": {"count": 1, "max_sub_news": 1}})
+    spec = _spec(
+        news_search_options={
+            "count": 1,
+            "subjects": {"enable": True, "count": 1, "max_sub_news": 1},
+        }
+    )
     result = spec.news_search("semiconductor industry", time_range="week")
     _check("news_search", result)
     assert result["data"]["results"]
+    subjects = result["data"].get("subjects") or []
+    assert any(subject.get("name") for subject in subjects), subjects
 
 
 def test_live_business_search() -> None:

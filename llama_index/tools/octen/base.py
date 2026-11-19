@@ -244,6 +244,10 @@ def _classify(exc: Exception) -> Optional[str]:
             data = exc.response_data
             code = data.get("code") if isinstance(data, dict) else None
             return None if code in (401, 403) else f"{exc}. {_MAY_HAVE_BEEN_SENT}"
+        if status in (502, 504):
+            # Already retried by the SDK; a gateway can send these after the
+            # backend has finished and billed the request.
+            return f"{exc}. {_MAY_HAVE_BEEN_SENT}"
         if status in (400, 408, 422) or status >= 500:
             return str(exc)
     return None
@@ -386,10 +390,11 @@ class OctenToolSpec(BaseToolSpec):
             # Deep copy: later changes to the caller's dicts or SDK option
             # objects must not alter what is sent or bypass validation.
             options = copy.deepcopy(dict(options or {}))
-            unknown = sorted(set(options) - _ALLOWED_OPTIONS[name])
+            # Keys may be of any type, so compare and report them via repr.
+            unknown = sorted((k for k in options if k not in _ALLOWED_OPTIONS[name]), key=repr)
             if unknown:
                 raise ValueError(
-                    f"{name} does not accept {', '.join(unknown)}; "
+                    f"{name} does not accept {', '.join(repr(k) for k in unknown)}; "
                     f"allowed keys: {', '.join(sorted(_ALLOWED_OPTIONS[name]))}"
                 )
             _validate_option_values(name, options)
@@ -481,9 +486,9 @@ class OctenToolSpec(BaseToolSpec):
         safesearch: Optional[str] = None,
         format: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Search the live web and return ranked results (title, url, snippet) for one focused lookup: one fact, one page, one document you do not already know the address of.
+        """Search the live web for one focused lookup (one fact, page or document); for news use news_search, a company or person business_search, a site's URL pulse_search, a place place_search, a multi-part question broad_search.
 
-        For news use news_search; for anything about a company or the people in one (what it does, who runs it, its revenue or share price, what it has announced) use business_search; when all you need is the URL of a site or docs page you could almost name, use pulse_search. If the question spans several independent subtopics, use broad_search instead: a sequence of search calls is slower and gives worse coverage than one fan-out.
+        Returns ranked results (title, url, snippet). A sequence of search calls is slower and gives worse coverage than one broad_search fan-out.
 
         Args:
             query: A natural language search query.

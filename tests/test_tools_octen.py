@@ -207,3 +207,37 @@ def test_classify_failed_2xx_warns_model_not_to_retry(exc: Exception) -> None:
     assert message is not None
     assert message.startswith(str(exc))
     assert "may already have reached the server and been billed" in message
+
+
+@pytest.mark.parametrize("status", [502, 504])
+def test_classify_gateway_errors_warn_model_not_to_retry(status: int) -> None:
+    # The SDK already retried these; the backend may have finished and billed.
+    exc = OctenAPIError("gateway", status_code=status)
+    message = _classify(exc)
+    assert message is not None
+    assert message.startswith(str(exc))
+    assert "may already have reached the server and been billed" in message
+
+
+@pytest.mark.parametrize("status", [500, 503])
+def test_classify_other_5xx_keep_plain_message(status: int) -> None:
+    exc = OctenAPIError("server", status_code=status)
+    assert _classify(exc) == str(exc)
+
+
+@pytest.mark.parametrize(
+    ("options", "bad"),
+    [({1: True}, "1"), ({1: True, "x": 2}, "1"), ({"count": 1, None: 2}, "None")],
+)
+def test_non_string_option_keys_rejected(options: dict, bad: str) -> None:
+    with pytest.raises(ValueError, match=f"news_search_options does not accept .*{bad}"):
+        OctenToolSpec(api_key="k", news_search_options=options)
+
+
+def test_search_description_routes_to_new_functions() -> None:
+    # Only the first docstring line reaches the model on llama-index-core
+    # 0.13.0, so the routing hint has to be on it.
+    tools = {t.metadata.name: t.metadata for t in OctenToolSpec(api_key="k").to_tool_list()}
+    description = tools["search"].description
+    for name in ["news_search", "business_search", "pulse_search", "broad_search", "place_search"]:
+        assert name in description, name
