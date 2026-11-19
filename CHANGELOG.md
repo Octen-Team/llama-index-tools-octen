@@ -2,6 +2,46 @@
 
 ## 0.2.0
 
+### Upgrading from 0.1.x
+
+Existing code keeps working: the constructor's positional arguments and the
+`search`, `search_and_retrieve_documents` and `search_and_retrieve_highlights`
+functions have the same parameters, return shapes and errors. Things that do
+change:
+
+- **`to_tool_list()` now returns nine tools instead of four.** An agent built
+  with `OctenToolSpec(...).to_tool_list()` also gets `broad_search`,
+  `news_search`, `business_search`, `pulse_search` and `place_search`, and the
+  model may call them; they have their own pricing (Broad Search is billed per
+  sub-query). To keep the 0.1.x tool set:
+
+  ```python
+  tools = OctenToolSpec().to_tool_list(
+      spec_functions=[
+          "search",
+          "search_and_retrieve_documents",
+          "search_and_retrieve_highlights",
+          "current_date",
+      ]
+  )
+  ```
+
+- **`octen` is upgraded to 0.12.0 or newer.** If your project pins `octen` below
+  0.12.0, dependency resolution fails until you relax that pin.
+- **No retry after a request was sent.** A request that timed out or lost its
+  connection after it was sent is no longer retried, so it can't be billed a
+  second time by the retry. Calls that used to succeed on such a retry now raise
+  the SDK error. Retries on status codes (408, 429, 5xx) are unchanged.
+- **`search_type` is ignored.** With `octen` 0.5.0 or newer, passing it used to
+  raise `TypeError`; it now works and emits a `FutureWarning`. If you relied on
+  it with an older `octen`, it no longer has any effect.
+- **Stricter constructor checks.** An empty `api_key`, or a `timeout` that is
+  not a positive finite number, raises `ValueError` when the spec is built
+  instead of failing on the first call. Omitting `api_key` now reads
+  `OCTEN_API_KEY`.
+- **Reworded `search` description.** Its first line now points the model to
+  the new functions, so when it chooses `search` may shift.
+
 ### Added
 
 - Five new spec functions: `broad_search`, `news_search`, `business_search`,
