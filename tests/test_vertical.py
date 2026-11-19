@@ -545,3 +545,14 @@ def test_model_visible_description_keeps_instructions() -> None:
     for name, phrases in expected.items():
         for phrase in phrases:
             assert phrase in tools[name], (name, phrase)
+
+
+@pytest.mark.parametrize("bad", [0, -1, float("nan"), float("inf"), True, "30"])
+def test_shared_timeout_rejected_at_construction(bad: Any) -> None:
+    with pytest.raises(ValueError, match="timeout"):
+        OctenToolSpec(api_key="k", timeout=bad)
+
+
+def test_shared_timeout_none_and_positive_accepted() -> None:
+    OctenToolSpec(api_key="k", timeout=None)
+    OctenToolSpec(api_key="k", timeout=2.5)

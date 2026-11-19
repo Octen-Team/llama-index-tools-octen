@@ -256,18 +256,22 @@ def _describe(exc: ValidationError) -> str:
     )
 
 
-def _validate_option_values(name: str, options: Dict[str, Any]) -> None:
-    """Check developer options with the SDK request model the call would build."""
-    import octen
-
-    timeout = options.get("timeout")
+def _check_timeout(label: str, timeout: Any) -> None:
+    """Reject a timeout that is not a finite, positive number of seconds."""
     if timeout is not None and (
         isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))
         or not math.isfinite(timeout)
         or timeout <= 0
     ):
-        raise ValueError(f"{name}: timeout must be a positive number of seconds, got {timeout!r}")
+        raise ValueError(f"{label}: timeout must be a positive number of seconds, got {timeout!r}")
+
+
+def _validate_option_values(name: str, options: Dict[str, Any]) -> None:
+    """Check developer options with the SDK request model the call would build."""
+    import octen
+
+    _check_timeout(name, options.get("timeout"))
 
     fields = {k: v for k, v in options.items() if k != "timeout"}
     query = "placeholder"
@@ -363,6 +367,7 @@ class OctenToolSpec(BaseToolSpec):
             raise ValueError(
                 "No Octen API key: pass api_key or set the OCTEN_API_KEY environment variable."
             )
+        _check_timeout("OctenToolSpec", timeout)
         given = {
             "broad_search_options": broad_search_options,
             "news_search_options": news_search_options,

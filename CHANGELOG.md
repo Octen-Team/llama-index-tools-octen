@@ -37,6 +37,9 @@
   `search_and_retrieve_highlights` alike: a request that timed out or lost
   its connection after it was sent is no longer retried, since it may
   already have been served and billed.
+- The constructor's `timeout` must be a finite number of seconds greater than
+  0 (or `None`); other values raise `ValueError` instead of failing on the
+  first request.
 
 ### Deprecated
 
