@@ -1,13 +1,18 @@
 """Octen tool spec - web search API for AI."""
 
 import datetime
+import logging
 import os
 import warnings
-from typing import Any, Dict, FrozenSet, List, Optional
+from typing import Any, Dict, FrozenSet, List, Literal, Optional
 
 from llama_index.core.bridge.pydantic import ValidationError
 from llama_index.core.schema import Document
 from llama_index.core.tools.tool_spec.base import BaseToolSpec
+
+logger = logging.getLogger("llama_index.tools.octen")
+
+TimeRange = Literal["day", "week", "month", "year", "d", "w", "m", "y"]
 
 _SEARCH_TYPE_DEPRECATION = (
     "search_type is deprecated and ignored: the Octen API no longer takes it. "
@@ -46,9 +51,54 @@ def _classify(exc: Exception) -> Optional[str]:
     # 401 (OctenAuthenticationError), 403 and other 4xx fall through to raise.
     if isinstance(exc, OctenAPIError):
         status = exc.status_code
-        if status is not None and (status in (400, 422) or status >= 500):
+        if status is None:
+            return None
+        if 200 <= status < 300:
+            # Envelope error or malformed body behind a 2xx. An envelope that
+            # reports an auth or access failure is still a configuration error.
+            data = exc.response_data
+            code = data.get("code") if isinstance(data, dict) else None
+            return None if code in (401, 403) else str(exc)
+        if status in (400, 408, 422) or status >= 500:
             return str(exc)
     return None
+
+
+def _describe(exc: ValidationError) -> str:
+    return "; ".join(
+        f"{'.'.join(str(p) for p in err['loc']) or 'arguments'}: {err['msg']}"
+        for err in exc.errors()
+    )
+
+
+def _validate_option_values(name: str, options: Dict[str, Any]) -> None:
+    """Check developer options with the SDK request model the call would build."""
+    import octen
+
+    timeout = options.get("timeout")
+    if timeout is not None and (
+        isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0
+    ):
+        raise ValueError(f"{name}: timeout must be a positive number of seconds, got {timeout!r}")
+
+    fields = {k: v for k, v in options.items() if k != "timeout"}
+    query = "placeholder"
+    try:
+        if name == "broad_search_options":
+            max_queries = fields.pop("max_queries", None)
+            octen.SearchOptions(**fields)
+            if max_queries is not None:
+                octen.BroadSearchRequest(query=query, max_queries=max_queries)
+        else:
+            request_model = {
+                "news_search_options": octen.NewsSearchRequest,
+                "business_search_options": octen.BusinessSearchRequest,
+                "pulse_search_options": octen.PulseSearchRequest,
+                "place_search_options": octen.PlaceSearchRequest,
+            }[name]
+            request_model(query=query, **fields)
+    except ValidationError as exc:
+        raise ValueError(f"{name} has an invalid value: {_describe(exc)}") from exc
 
 
 def _invalid_model_args(request_model: Any, model_args: Dict[str, Any]) -> Optional[str]:
@@ -60,11 +110,7 @@ def _invalid_model_args(request_model: Any, model_args: Dict[str, Any]) -> Optio
     try:
         request_model(**model_args)
     except ValidationError as exc:
-        details = "; ".join(
-            f"{'.'.join(str(p) for p in err['loc']) or 'arguments'}: {err['msg']}"
-            for err in exc.errors()
-        )
-        return f"Invalid arguments: {details}"
+        return f"Invalid arguments: {_describe(exc)}"
     return None
 
 
@@ -122,7 +168,7 @@ class OctenToolSpec(BaseToolSpec):
 
         Raises:
             ValueError: if no API key is available, or an options dict holds
-                a key that is not allowed for its endpoint.
+                a key that is not allowed for its endpoint or an invalid value.
         """
         resolved_key = api_key if api_key is not None else os.environ.get("OCTEN_API_KEY")
         if not resolved_key:
@@ -145,6 +191,7 @@ class OctenToolSpec(BaseToolSpec):
                     f"{name} does not accept {', '.join(unknown)}; "
                     f"allowed keys: {', '.join(sorted(_ALLOWED_OPTIONS[name]))}"
                 )
+            _validate_option_values(name, options)
             self._options[name] = options
 
         self._api_key = resolved_key
@@ -238,7 +285,7 @@ class OctenToolSpec(BaseToolSpec):
             format: Result format - "text" or "markdown".
         """
         if search_type is not None:
-            warnings.warn(_SEARCH_TYPE_DEPRECATION, DeprecationWarning, stacklevel=2)
+            warnings.warn(_SEARCH_TYPE_DEPRECATION, FutureWarning, stacklevel=2)
         kwargs = self._build_kwargs(
             query,
             num_results=num_results,
@@ -308,7 +355,7 @@ class OctenToolSpec(BaseToolSpec):
         from octen.models.search import FullContentOptions
 
         if search_type is not None:
-            warnings.warn(_SEARCH_TYPE_DEPRECATION, DeprecationWarning, stacklevel=2)
+            warnings.warn(_SEARCH_TYPE_DEPRECATION, FutureWarning, stacklevel=2)
         kwargs = self._build_kwargs(
             query,
             num_results=num_results,
@@ -386,7 +433,7 @@ class OctenToolSpec(BaseToolSpec):
         from octen.models.search import HighlightOptions
 
         if search_type is not None:
-            warnings.warn(_SEARCH_TYPE_DEPRECATION, DeprecationWarning, stacklevel=2)
+            warnings.warn(_SEARCH_TYPE_DEPRECATION, FutureWarning, stacklevel=2)
         kwargs = self._build_kwargs(
             query,
             num_results=num_results,
@@ -436,7 +483,7 @@ class OctenToolSpec(BaseToolSpec):
         query: str,
         include_domains: Optional[List[str]] = None,
         exclude_domains: Optional[List[str]] = None,
-        time_range: Optional[str] = None,
+        time_range: Optional[TimeRange] = None,
         language: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Search the web across many angles in one call, for comparisons, research, surveys and questions with several distinct parts. Expands the question into multiple sub-queries and runs them concurrently.
@@ -453,7 +500,7 @@ class OctenToolSpec(BaseToolSpec):
             query (str): One natural-language question, max 500 chars. Resolve pronouns from the conversation first; do NOT pre-split it into sub-queries.
             include_domains (Optional[List[str]]): Only return results from these domains, e.g. ["arxiv.org"].
             exclude_domains (Optional[List[str]]): Drop results from these domains.
-            time_range (Optional[str]): Relative time window, one of "day", "week", "month", "year" (or "d", "w", "m", "y").
+            time_range (Optional[TimeRange]): Relative time window, one of "day", "week", "month", "year" (or "d", "w", "m", "y").
             language (Optional[List[str]]): ISO 639-1 codes to filter results by, e.g. ["en", "ja"]. Supported: ar, de, en, es, fr, hi, id, it, ja, ko, nl, pl, pt, ru, th, tr, vi, zh.
 
         Returns:
@@ -476,7 +523,7 @@ class OctenToolSpec(BaseToolSpec):
         query: str,
         include_domains: Optional[List[str]] = None,
         exclude_domains: Optional[List[str]] = None,
-        time_range: Optional[str] = None,
+        time_range: Optional[TimeRange] = None,
         language: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Search recent news and return ranked articles (title, url, snippet): current events, headlines, timely reporting. Alongside the articles it normally returns subjects: the coverage grouped into storylines, each with a summary and the span it covers, so a "what happened with X" question is answerable without reading every article.
@@ -489,7 +536,7 @@ class OctenToolSpec(BaseToolSpec):
             query (str): What to find news about, max 500 chars.
             include_domains (Optional[List[str]]): Only return articles from these domains, e.g. ["reuters.com"].
             exclude_domains (Optional[List[str]]): Drop articles from these domains.
-            time_range (Optional[str]): Relative time window, one of "day", "week", "month", "year" (or "d", "w", "m", "y").
+            time_range (Optional[TimeRange]): Relative time window, one of "day", "week", "month", "year" (or "d", "w", "m", "y").
             language (Optional[List[str]]): ISO 639-1 codes to filter articles by, e.g. ["en", "ja"]. Supported: ar, de, en, es, fr, hi, id, it, ja, ko, nl, pl, pt, ru, th, tr, vi, zh.
 
         Returns:
@@ -512,7 +559,7 @@ class OctenToolSpec(BaseToolSpec):
         query: str,
         include_domains: Optional[List[str]] = None,
         exclude_domains: Optional[List[str]] = None,
-        time_range: Optional[str] = None,
+        time_range: Optional[TimeRange] = None,
         language: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Look up a company or a person and get a structured card back, plus the ranked sources behind it. A company card carries the profile, identifiers, financial and stock metrics, key people and recent announcements; a person card carries the current position, career history and recent activity. Name two companies in one query and you get a card for each, same fields, ready to compare.
@@ -527,7 +574,7 @@ class OctenToolSpec(BaseToolSpec):
             query (str): The company, person or comparison to look up, max 500 chars.
             include_domains (Optional[List[str]]): Only return ranked sources from these domains.
             exclude_domains (Optional[List[str]]): Drop ranked sources from these domains.
-            time_range (Optional[str]): Relative time window for the ranked sources, one of "day", "week", "month", "year" (or "d", "w", "m", "y").
+            time_range (Optional[TimeRange]): Relative time window for the ranked sources, one of "day", "week", "month", "year" (or "d", "w", "m", "y").
             language (Optional[List[str]]): ISO 639-1 codes to filter the ranked sources by, e.g. ["en"]. Supported: ar, de, en, es, fr, hi, id, it, ja, ko, nl, pl, pt, ru, th, tr, vi, zh.
 
         Returns:
@@ -604,7 +651,7 @@ class OctenToolSpec(BaseToolSpec):
                 ("country", country),
                 ("timezone", timezone),
             )
-            if value is not None
+            if value
         }
         return self._vertical_search(
             "place_search",
@@ -642,6 +689,9 @@ class OctenToolSpec(BaseToolSpec):
         except Exception as exc:
             message = _classify(exc)
             if message is None:
+                # Agent workflows turn any tool exception into text for the
+                # model, so log it where the developer will see it.
+                logger.error("%s raised %s: %s", endpoint, type(exc).__name__, exc)
                 raise
             return {"error": message}
         finally:

@@ -97,6 +97,37 @@ def test_allowed_option_keys_accepted(kwarg: str, options: dict) -> None:
 
 
 @pytest.mark.parametrize(
+    ("kwarg", "options", "bad_option"),
+    [
+        ("news_search_options", {"count": 1000}, "count"),
+        ("news_search_options", {"subjects": {"count": 9}}, "subjects"),
+        ("news_search_options", {"subjects": {"bogus": 1}}, "subjects"),
+        ("broad_search_options", {"max_queries": 99}, "max_queries"),
+        ("broad_search_options", {"count": 0}, "count"),
+        ("broad_search_options", {"highlight": {"max_tokens": 5}}, "highlight"),
+        ("business_search_options", {"entities": {"count": 50}}, "entities"),
+        ("business_search_options", {"full_content": {"max_tokens": 10**7}}, "full_content"),
+        ("pulse_search_options", {"mode": "turbo"}, "mode"),
+        ("pulse_search_options", {"count": 11}, "count"),
+        ("place_search_options", {"places": {"count": 0}}, "places"),
+        ("place_search_options", {"web_search": {"count": 101}}, "web_search"),
+        ("place_search_options", {"web_search": {"time_range": "last week"}}, "web_search"),
+        ("news_search_options", {"timeout": 0}, "timeout"),
+        ("place_search_options", {"timeout": "soon"}, "timeout"),
+        ("pulse_search_options", {"timeout": True}, "timeout"),
+    ],
+)
+def test_invalid_option_value_rejected(kwarg: str, options: dict, bad_option: str) -> None:
+    with pytest.raises(ValueError, match=f"{kwarg}.*{bad_option}"):
+        OctenToolSpec(api_key="k", **{kwarg: options})
+
+
+@pytest.mark.parametrize("mode", ["lite", "standard"])
+def test_pulse_modes_accepted(mode: str) -> None:
+    OctenToolSpec(api_key="k", pulse_search_options={"mode": mode})
+
+
+@pytest.mark.parametrize(
     ("exc", "to_model"),
     [
         (OctenAuthenticationError(), False),
@@ -109,6 +140,12 @@ def test_allowed_option_keys_accepted(kwarg: str, options: dict) -> None:
         (OctenAPIError("x", status_code=422), True),
         (OctenTimeoutError(), True),
         (OctenConnectionError(), True),
+        (OctenAPIError("Request Timeout", status_code=408), True),
+        (OctenAPIError("malformed successful response", status_code=200), True),
+        (OctenAPIError("upstream busy", status_code=200, response_data={"code": 503}), True),
+        # An envelope that reports an auth or access failure stays a config error.
+        (OctenAPIError("bad key", status_code=200, response_data={"code": 401}), False),
+        (OctenAPIError("no balance", status_code=200, response_data={"code": 403}), False),
         (RuntimeError("bug"), False),
     ],
 )
@@ -126,7 +163,7 @@ def test_classify(exc: Exception, to_model: bool) -> None:
 )
 def test_search_type_ignored_with_warning(octen_cls: MagicMock, method: str) -> None:
     spec = OctenToolSpec(api_key="k", verbose=False)
-    with pytest.warns(DeprecationWarning, match="search_type"):
+    with pytest.warns(FutureWarning, match="search_type"):
         getattr(spec, method)("q", search_type="semantic")
     kwargs = octen_cls.return_value.search.search.call_args.kwargs
     assert "search_type" not in kwargs

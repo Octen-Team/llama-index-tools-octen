@@ -1,5 +1,7 @@
 """Unit tests for the broad, news, business, pulse and place search functions."""
 
+import inspect
+import logging
 from typing import Any, Dict
 from unittest.mock import MagicMock
 
@@ -230,11 +232,91 @@ def test_config_errors_raise(octen_cls: MagicMock, function: str, exc: Exception
     octen_cls.return_value.close.assert_called_once()
 
 
-def test_developer_option_out_of_range_raises() -> None:
-    # Real client: octen-py rejects count=1000 locally, before any request.
-    spec = _spec(news_search_options={"count": 1000})
-    with pytest.raises(OctenValidationError):
-        spec.news_search("q")
+def test_developer_option_out_of_range_raises_at_construction(octen_cls: MagicMock) -> None:
+    with pytest.raises(ValueError, match="news_search_options.*count"):
+        _spec(news_search_options={"count": 1000})
+    octen_cls.assert_not_called()
+
+
+@pytest.mark.parametrize("function", NEW_FUNCTIONS)
+def test_raised_errors_are_logged(
+    octen_cls: MagicMock, caplog: Any, function: str
+) -> None:
+    # Agent workflows turn any tool exception into text for the model, so the
+    # log is where a developer sees a configuration error.
+    _sdk_method(octen_cls, function).side_effect = OctenAPIError("forbidden", status_code=403)
+    with caplog.at_level(logging.ERROR, logger="llama_index.tools.octen"):
+        with pytest.raises(OctenAPIError):
+            getattr(_spec(), function)("q")
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert errors[0].name == "llama_index.tools.octen"
+    assert "OctenAPIError" in errors[0].getMessage()
+    assert "forbidden | Status: 403" in errors[0].getMessage()
+
+
+def test_errors_returned_to_model_are_not_logged_as_errors(
+    octen_cls: MagicMock, caplog: Any
+) -> None:
+    _sdk_method(octen_cls, "news_search").side_effect = OctenRateLimitError()
+    with caplog.at_level(logging.DEBUG, logger="llama_index.tools.octen"):
+        assert "error" in _spec().news_search("q")
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+def test_time_range_schema_is_an_enum() -> None:
+    tools = {t.metadata.name: t for t in _spec().to_tool_list()}
+    for name in FILTERED:
+        schema = tools[name].metadata.fn_schema
+        assert schema is not None
+        prop = schema.model_json_schema()["properties"]["time_range"]
+        enums = [branch["enum"] for branch in prop["anyOf"] if "enum" in branch]
+        assert enums == [["day", "week", "month", "year", "d", "w", "m", "y"]], name
+
+
+def test_place_empty_location_fields_dropped(octen_cls: MagicMock) -> None:
+    _spec().place_search("ramen", city="Tokyo", region="", country="", timezone="")
+    _sdk_method(octen_cls, "place_search").assert_called_once_with(
+        query="ramen", user_location={"type": "approximate", "city": "Tokyo"}
+    )
+
+
+def test_place_all_empty_location_fields_send_no_user_location(octen_cls: MagicMock) -> None:
+    _spec().place_search("ramen in Shinjuku", city="", region="", country="", timezone="")
+    _sdk_method(octen_cls, "place_search").assert_called_once_with(query="ramen in Shinjuku")
+
+
+def _signature_params(method: Any) -> set:
+    return set(inspect.signature(method).parameters) - {"self"}
+
+
+def test_names_match_real_sdk_signatures() -> None:
+    # No mocks: every developer option and model arg must be a parameter of
+    # the SDK method it is forwarded to, or the call fails with TypeError.
+    from octen.resources.place_search import PlaceSearchResource
+    from octen.resources.search import SearchResource
+
+    from llama_index.tools.octen.base import _ALLOWED_OPTIONS
+
+    sdk = {
+        "broad_search": SearchResource.broad_search,
+        "news_search": SearchResource.news_search,
+        "business_search": SearchResource.business_search,
+        "pulse_search": SearchResource.pulse_search,
+        "place_search": PlaceSearchResource.search,
+    }
+    # place_search assembles user_location from its flat location args.
+    renamed = {"city": "user_location", "region": "user_location",
+               "country": "user_location", "timezone": "user_location"}
+    assert set(sdk) == set(NEW_FUNCTIONS)
+    for function, method in sdk.items():
+        accepted = _signature_params(method)
+        assert "bogus_param" not in accepted
+        options = _ALLOWED_OPTIONS[f"{function}_options"] - {"timeout"}
+        model_args = {renamed.get(a, a) for a in _signature_params(getattr(OctenToolSpec, function))}
+        assert options <= accepted, (function, options - accepted)
+        assert model_args <= accepted, (function, model_args - accepted)
+        assert "timeout" in accepted, function
 
 
 @pytest.mark.parametrize("function", FILTERED)
