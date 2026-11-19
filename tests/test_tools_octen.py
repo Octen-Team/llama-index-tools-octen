@@ -115,6 +115,8 @@ def test_allowed_option_keys_accepted(kwarg: str, options: dict) -> None:
         ("news_search_options", {"timeout": 0}, "timeout"),
         ("place_search_options", {"timeout": "soon"}, "timeout"),
         ("pulse_search_options", {"timeout": True}, "timeout"),
+        ("broad_search_options", {"timeout": float("nan")}, "timeout"),
+        ("business_search_options", {"timeout": float("inf")}, "timeout"),
     ],
 )
 def test_invalid_option_value_rejected(kwarg: str, options: dict, bad_option: str) -> None:
@@ -138,8 +140,8 @@ def test_pulse_modes_accepted(mode: str) -> None:
         (OctenAPIError("x", status_code=503), True),
         (OctenAPIError("x", status_code=400), True),
         (OctenAPIError("x", status_code=422), True),
-        (OctenTimeoutError(), True),
-        (OctenConnectionError(), True),
+        (OctenTimeoutError(request_sent=False), True),
+        (OctenConnectionError(request_sent=False), True),
         (OctenAPIError("Request Timeout", status_code=408), True),
         (OctenAPIError("malformed successful response", status_code=200), True),
         (OctenAPIError("upstream busy", status_code=200, response_data={"code": 503}), True),
@@ -168,3 +170,27 @@ def test_search_type_ignored_with_warning(octen_cls: MagicMock, method: str) -> 
     kwargs = octen_cls.return_value.search.search.call_args.kwargs
     assert "search_type" not in kwargs
     assert kwargs["query"] == "q"
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        OctenTimeoutError(timeout=30, request_sent=True),
+        OctenTimeoutError(timeout=30, request_sent=None),
+        OctenConnectionError(request_sent=True),
+        OctenConnectionError(request_sent=None),
+    ],
+)
+def test_classify_warns_model_when_request_may_have_been_sent(exc: Exception) -> None:
+    message = _classify(exc)
+    assert message is not None
+    assert message.startswith(str(exc))
+    assert "may already have reached the server and been billed" in message
+    assert "do not retry" in message.lower()
+
+
+@pytest.mark.parametrize(
+    "exc", [OctenTimeoutError(request_sent=False), OctenConnectionError(request_sent=False)]
+)
+def test_classify_unsent_failure_keeps_plain_message(exc: Exception) -> None:
+    assert _classify(exc) == str(exc)

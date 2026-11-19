@@ -1,7 +1,9 @@
 """Octen tool spec - web search API for AI."""
 
+import copy
 import datetime
 import logging
+import math
 import os
 import warnings
 from typing import Any, Dict, FrozenSet, List, Literal, Optional
@@ -32,6 +34,12 @@ _ALLOWED_OPTIONS: Dict[str, FrozenSet[str]] = {
 }
 
 
+_MAY_HAVE_BEEN_SENT = (
+    "The request may already have reached the server and been billed; "
+    "do not retry it automatically."
+)
+
+
 def _classify(exc: Exception) -> Optional[str]:
     """Return the message to hand to the model, or None if exc must be raised.
 
@@ -46,7 +54,12 @@ def _classify(exc: Exception) -> Optional[str]:
         OctenTimeoutError,
     )
 
-    if isinstance(exc, (OctenRateLimitError, OctenTimeoutError, OctenConnectionError)):
+    if isinstance(exc, (OctenTimeoutError, OctenConnectionError)):
+        # request_sent is True or None when the request may have been served.
+        if getattr(exc, "request_sent", None) is False:
+            return str(exc)
+        return f"{exc}. {_MAY_HAVE_BEEN_SENT}"
+    if isinstance(exc, OctenRateLimitError):
         return str(exc)
     # 401 (OctenAuthenticationError), 403 and other 4xx fall through to raise.
     if isinstance(exc, OctenAPIError):
@@ -77,7 +90,10 @@ def _validate_option_values(name: str, options: Dict[str, Any]) -> None:
 
     timeout = options.get("timeout")
     if timeout is not None and (
-        isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(timeout)
+        or timeout <= 0
     ):
         raise ValueError(f"{name}: timeout must be a positive number of seconds, got {timeout!r}")
 
@@ -184,7 +200,9 @@ class OctenToolSpec(BaseToolSpec):
         }
         self._options: Dict[str, Dict[str, Any]] = {}
         for name, options in given.items():
-            options = dict(options or {})
+            # Deep copy: later changes to the caller's dicts or SDK option
+            # objects must not alter what is sent or bypass validation.
+            options = copy.deepcopy(dict(options or {}))
             unknown = sorted(set(options) - _ALLOWED_OPTIONS[name])
             if unknown:
                 raise ValueError(
@@ -651,7 +669,7 @@ class OctenToolSpec(BaseToolSpec):
                 ("country", country),
                 ("timezone", timezone),
             )
-            if value
+            if value is not None and value != ""
         }
         return self._vertical_search(
             "place_search",

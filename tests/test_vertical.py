@@ -203,8 +203,8 @@ def test_broad_response_without_meta(octen_cls: MagicMock) -> None:
         OctenAPIError("upstream failed", status_code=503),
         OctenAPIError("bad filter", status_code=400),
         OctenAPIError("unprocessable", status_code=422),
-        OctenTimeoutError(timeout=30),
-        OctenConnectionError(),
+        OctenTimeoutError(timeout=30, request_sent=False),
+        OctenConnectionError(request_sent=False),
     ],
 )
 def test_transient_errors_returned_as_error_dict(
@@ -444,3 +444,61 @@ def test_tool_call_through_llamaindex(octen_cls: MagicMock) -> None:
     octen_cls.assert_not_called()
     output = tools["news_search"].call(query="q", time_range="week")
     assert output.raw_output == {"data": {"results": []}, "request_id": "rid-1"}
+
+
+def test_options_deep_copied_at_construction(octen_cls: MagicMock) -> None:
+    subjects = {"count": 1}
+    highlight = octen.HighlightOptions(enable=True, max_tokens=200)
+    options = {"count": 2, "subjects": subjects, "highlight": highlight}
+    spec = _spec(news_search_options=options)
+    # Caller mutations after construction must not change what is sent,
+    # including into values that would have failed validation.
+    subjects["count"] = 99
+    highlight.max_tokens = 300
+    options["count"] = 1000
+    spec.news_search("q")
+    kwargs = _sdk_method(octen_cls, "news_search").call_args.kwargs
+    assert kwargs["count"] == 2
+    assert kwargs["subjects"] == {"count": 1}
+    assert kwargs["highlight"].max_tokens == 200
+
+
+@pytest.mark.parametrize(
+    ("args", "field"),
+    [({"city": False}, "city"), ({"country": 0}, "country"), ({"timezone": []}, "timezone")],
+)
+def test_place_non_string_location_returns_error_dict_without_call(
+    octen_cls: MagicMock, args: Dict[str, Any], field: str
+) -> None:
+    result = _spec().place_search("ramen", **args)
+    assert set(result) == {"error"}
+    assert field in result["error"]
+    octen_cls.assert_not_called()
+
+
+def test_timeout_after_send_tells_model_not_to_retry(octen_cls: MagicMock) -> None:
+    _sdk_method(octen_cls, "pulse_search").side_effect = OctenTimeoutError(
+        timeout=30, request_sent=True
+    )
+    error = _spec().pulse_search("q")["error"]
+    assert "may already have reached the server and been billed" in error
+
+
+def test_model_visible_description_keeps_instructions() -> None:
+    # The model sees ToolMetadata.description; it must carry the docstring's
+    # instructions, not only the summary line.
+    tools = {t.metadata.name: t.metadata.description for t in _spec().to_tool_list()}
+    expected = {
+        "news_search": [
+            "narrow the ranked articles only",
+            "answer from the articles, not the storylines",
+        ],
+        "business_search": ["narrow the ranked sources only, never the cards"],
+        "broad_search": ["do NOT pre-split it into sub-queries", "Do NOT call broad_search twice"],
+        "pulse_search": ['prepend "https://"'],
+        "place_search": ["Must be sent with longitude", "Requires latitude and longitude",
+                         "Pass the caller's location"],
+    }
+    for name, phrases in expected.items():
+        for phrase in phrases:
+            assert phrase in tools[name], (name, phrase)
