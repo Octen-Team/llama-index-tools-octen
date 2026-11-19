@@ -6,10 +6,13 @@
 
 - Five new spec functions: `broad_search`, `news_search`, `business_search`,
   `pulse_search` and `place_search`. The model gets only the query and
-  filters that do not change cost; result counts, content options and other
-  billing-relevant options are set by the developer through the new
-  `broad_search_options`, `news_search_options`, `business_search_options`,
-  `pulse_search_options` and `place_search_options` constructor arguments.
+  filters; billing-related options and limits (result counts, content
+  options, Broad Search's `max_queries` and others) are set by the developer
+  through the new `broad_search_options`, `news_search_options`,
+  `business_search_options`, `pulse_search_options` and
+  `place_search_options` constructor arguments. These bound the cost rather
+  than fix it: Broad Search is billed per sub-query, and the number of
+  sub-queries it runs, up to `max_queries`, depends on the query.
 - Developer options are validated when the spec is built: an unknown key
   or a value the `octen` SDK would reject (for example `count=1000`) raises
   `ValueError`.
@@ -52,9 +55,18 @@
   `octen>=0.5.0` passing it raised `TypeError`. It will be removed in a
   future release.
 
-### Known inconsistency
+### Known issues
 
 - The existing functions keep their 0.1.0 behaviour: they still expose
   `num_results`, `start_time` and other options to the model, return lists,
   and raise on errors. They will be aligned with the new functions in a
   future major release.
+- Calling a generated tool directly through `FunctionTool.call` with a
+  missing `query` or an unknown argument raises `TypeError` instead of
+  returning `{"error": ...}`. Agent workflows turn it into text the model
+  sees, and the existing functions behave the same way.
+- The routing hint in the `search` description names the other functions
+  even when only `search` is registered with the agent.
+- When octen-py retries a 502 or 504 internally and the final attempt fails
+  differently (for example with a 503), the "may already have been billed"
+  hint is not added, because the function only sees the final error.

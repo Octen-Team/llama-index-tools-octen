@@ -115,7 +115,7 @@ results = tool.search(
 
 ## Broad, News, Business, Pulse and Place Search
 
-These five functions give the model only the query and filters that do not change cost. Everything that decides how much comes back, and so what a call costs, is set by you when you build the spec:
+These five functions give the model only the query and filters. Billing-related options and limits, such as result counts, content options and Broad Search's `max_queries`, are set by you when you build the spec. They bound the cost of a call rather than fix it: Broad Search, for example, is billed per sub-query, and `max_queries` is an upper limit; how many sub-queries a call actually runs depends on the query.
 
 ```python
 tool = OctenToolSpec(
