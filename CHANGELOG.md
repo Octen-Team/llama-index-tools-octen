@@ -20,7 +20,8 @@
   error or malformed bodies behind a 2xx status, timeouts, connection errors
   and invalid model arguments come back to the model as `{"error": "..."}`.
   When a timeout or connection error may have happened after the request
-  was sent, that text tells the model the call may already have been
+  was sent, or a 2xx response carried an error or could not be read, that
+  text tells the model the call may already have been
   served and billed and should not be retried automatically.
 - LlamaIndex agent workflows catch every exception a tool raises and hand
   its text to the model, so a raised configuration error is not visible to

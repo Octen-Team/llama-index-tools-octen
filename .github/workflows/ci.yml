@@ -27,6 +27,21 @@ jobs:
       - name: Test
         run: pytest tests
 
+  # Lowest supported llama-index-core: it builds tool metadata differently.
+  test-min-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . "llama-index-core==0.13.0" "pytest>=7.2.1,<9" "pytest-mock>=3.11.1,<4"
+      - name: Test
+        run: pytest tests
+
   lint:
     runs-on: ubuntu-latest
     steps:

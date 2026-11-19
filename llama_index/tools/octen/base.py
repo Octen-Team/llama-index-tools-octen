@@ -6,15 +6,187 @@ import logging
 import math
 import os
 import warnings
-from typing import Any, Dict, FrozenSet, List, Literal, Optional
+from typing import Any, Dict, FrozenSet, List, Literal, Optional, Tuple, Type
 
-from llama_index.core.bridge.pydantic import ValidationError
+from llama_index.core.bridge.pydantic import BaseModel, Field, ValidationError
 from llama_index.core.schema import Document
-from llama_index.core.tools.tool_spec.base import BaseToolSpec
+from llama_index.core.tools.tool_spec.base import SPEC_FUNCTION_TYPE, BaseToolSpec
+from llama_index.core.tools.types import ToolMetadata
 
 logger = logging.getLogger("llama_index.tools.octen")
 
 TimeRange = Literal["day", "week", "month", "year", "d", "w", "m", "y"]
+
+# Model-facing descriptions and argument schemas for the newer functions.
+# Supplied explicitly because llama-index-core versions differ in how much of
+# a docstring reaches the model; each description fits the 1024-char limit
+# that ToolMetadata.to_openai_tool() checks by default.
+
+_TIME_RANGE_DESC = (
+    'Relative time window: "day", "week", "month" or "year" (or "d", "w", "m", "y").'
+)
+_LANGUAGE_DESC = (
+    'ISO 639-1 codes to filter by, e.g. ["en", "ja"]. Supported: ar, de, en, es, fr, '
+    "hi, id, it, ja, ko, nl, pl, pt, ru, th, tr, vi, zh."
+)
+
+
+class _BroadSearchArgs(BaseModel):
+    query: str = Field(
+        description="One natural-language question, max 500 chars, pronouns resolved. "
+        "Do not pre-split it into sub-queries."
+    )
+    include_domains: Optional[List[str]] = Field(
+        default=None, description='Only return results from these domains, e.g. ["arxiv.org"].'
+    )
+    exclude_domains: Optional[List[str]] = Field(
+        default=None, description="Drop results from these domains."
+    )
+    time_range: Optional[TimeRange] = Field(default=None, description=_TIME_RANGE_DESC)
+    language: Optional[List[str]] = Field(default=None, description=_LANGUAGE_DESC)
+
+
+class _NewsSearchArgs(BaseModel):
+    query: str = Field(description="What to find news about, max 500 chars.")
+    include_domains: Optional[List[str]] = Field(
+        default=None,
+        description='Only return articles from these domains, e.g. ["reuters.com"]. '
+        "Does not narrow the storylines.",
+    )
+    exclude_domains: Optional[List[str]] = Field(
+        default=None,
+        description="Drop articles from these domains. Does not narrow the storylines.",
+    )
+    time_range: Optional[TimeRange] = Field(default=None, description=_TIME_RANGE_DESC)
+    language: Optional[List[str]] = Field(default=None, description=_LANGUAGE_DESC)
+
+
+class _BusinessSearchArgs(BaseModel):
+    query: str = Field(
+        description="The company, person or comparison to look up, max 500 chars."
+    )
+    include_domains: Optional[List[str]] = Field(
+        default=None, description="Only return ranked sources from these domains."
+    )
+    exclude_domains: Optional[List[str]] = Field(
+        default=None, description="Drop ranked sources from these domains."
+    )
+    time_range: Optional[TimeRange] = Field(
+        default=None, description=_TIME_RANGE_DESC + " Applies to the ranked sources only."
+    )
+    language: Optional[List[str]] = Field(
+        default=None, description=_LANGUAGE_DESC + " Applies to the ranked sources only."
+    )
+
+
+class _PulseSearchArgs(BaseModel):
+    query: str = Field(
+        description='What to find the address of, e.g. "github docs". Max 500 chars.'
+    )
+
+
+class _PlaceSearchArgs(BaseModel):
+    query: str = Field(
+        description='What to look for, e.g. "coffee shops" or "ramen in Shinjuku". '
+        "Max 500 chars."
+    )
+    latitude: Optional[float] = Field(
+        default=None,
+        description="WGS84 latitude to search around, -90 to 90. Must be sent with longitude.",
+    )
+    longitude: Optional[float] = Field(
+        default=None,
+        description="WGS84 longitude to search around, -180 to 180. Must be sent with latitude.",
+    )
+    radius: Optional[int] = Field(
+        default=None,
+        description="Keep only places within this many metres of the point, 1 to 50000. "
+        "Requires latitude and longitude.",
+    )
+    city: Optional[str] = Field(
+        default=None, description="Approximate location when coordinates are unknown: city."
+    )
+    region: Optional[str] = Field(
+        default=None, description="Approximate location: state, province or region."
+    )
+    country: Optional[str] = Field(
+        default=None, description="Approximate location: country name or code."
+    )
+    timezone: Optional[str] = Field(
+        default=None, description='Approximate location: IANA timezone, e.g. "Asia/Tokyo".'
+    )
+
+
+_MODEL_FACING: Dict[str, Tuple[str, Type[BaseModel]]] = {
+    "broad_search": (
+        "Search the web across many angles in one call: expands one question into "
+        "several sub-queries, runs them concurrently and returns results grouped per "
+        "sub-query (not deduplicated; a URL may appear more than once). Use for "
+        "comparisons across many sources, literature or market surveys, open-ended "
+        '"what are the options for X" questions, questions with 3+ independent parts, '
+        "and multi-angle questions about recent events. Not for a single fact or page "
+        "(use search), a company or person (business_search), news on one topic "
+        "(news_search), a place (place_search) or a site's URL (pulse_search). It costs "
+        "roughly one search per sub-query and is slower; when in doubt, prefer search. "
+        "Pass the question as one query; do not pre-split it. Do not call it twice "
+        "after a disappointing result; follow up with a targeted search on the gaps. "
+        "The filters apply to every sub-query.",
+        _BroadSearchArgs,
+    ),
+    "news_search": (
+        "Search recent news: ranked articles (title, url, snippet) and normally "
+        "subjects, the coverage grouped into storylines, each with a summary and time "
+        "span. Use for what is being reported now: breaking events, announcements, "
+        "coverage of a company or person over recent days or weeks. include_domains "
+        "and exclude_domains narrow the ranked articles only; storylines are built "
+        "from the open web either way, so when the question restricts its sources "
+        '(e.g. "what is Reuters saying about X"), answer from the articles, not the '
+        "storylines. For a company or person profile use business_search; for "
+        "non-news pages use search; for a multi-angle question use broad_search "
+        "instead of looping this tool.",
+        _NewsSearchArgs,
+    ),
+    "business_search": (
+        "Look up a company or a person: returns structured cards plus the ranked "
+        "sources behind them. A company card has the profile, identifiers, financial "
+        "and stock metrics, key people and recent announcements; a person card has "
+        "the current position, career history and recent activity. Name two "
+        "companies in one query to get a card for each, ready to compare. Use for any "
+        "question about a company or the people in one, including the numbers "
+        "(revenue, net income, share price, funding rounds, headcount), what it does, "
+        "due diligence and comparisons; one call here replaces reading many pages "
+        "with search. Not for breaking coverage of an event (use news_search) or "
+        "general web pages (use search). The domain, time and language filters "
+        "narrow the ranked sources only, never the cards.",
+        _BusinessSearchArgs,
+    ),
+    "pulse_search": (
+        "Find the web address of a site or page you could almost name: returns ranked "
+        "candidate URLs with titles. Use for official docs and API references "
+        '("github docs", "python list methods"), help centres ("how do I return an '
+        'amazon order") and known sites ("youtube"); it answers in about 10ms for a '
+        "fraction of the cost of search. Not for news or anything needing freshness "
+        "(use news_search), and not for questions that need real retrieval, filters "
+        "or a time window (use search): it sees no fresh content. URLs may come back "
+        'without a scheme (e.g. "github.com/docs"); prepend "https://" before using '
+        "one as a link.",
+        _PulseSearchArgs,
+    ),
+    "place_search": (
+        "Find real-world places, each returned as a card: name, category, address, "
+        "coordinates, phone, website, opening hours, status, rating and review count. "
+        'Use for anything with a location: "coffee shops near me", "museums in '
+        'Lisbon", "is this place open on Sunday". Pass latitude and longitude, always '
+        "together, to search around a point; each card then has its distance in "
+        "metres, and radius (only with both coordinates) caps how far. When only the "
+        "area is known, pass city, region, country or timezone instead; no distance "
+        "comes back that way. Pass the caller's location when the question is "
+        'relative to them ("near me", "nearest") or names no area; a query that names '
+        'its own area ("ramen in Shinjuku") needs neither.',
+        _PlaceSearchArgs,
+    ),
+}
+
 
 _SEARCH_TYPE_DEPRECATION = (
     "search_type is deprecated and ignored: the Octen API no longer takes it. "
@@ -71,7 +243,7 @@ def _classify(exc: Exception) -> Optional[str]:
             # reports an auth or access failure is still a configuration error.
             data = exc.response_data
             code = data.get("code") if isinstance(data, dict) else None
-            return None if code in (401, 403) else str(exc)
+            return None if code in (401, 403) else f"{exc}. {_MAY_HAVE_BEEN_SENT}"
         if status in (400, 408, 422) or status >= 500:
             return str(exc)
     return None
@@ -217,6 +389,20 @@ class OctenToolSpec(BaseToolSpec):
         self._max_results = max_results
         self._max_characters = max_characters
         self._timeout = timeout
+
+    def get_metadata_from_fn_name(
+        self, fn_name: str, spec_functions: Optional[List[SPEC_FUNCTION_TYPE]] = None
+    ) -> Optional[ToolMetadata]:
+        """Return explicit metadata for the newer functions.
+
+        The older functions keep the metadata llama-index-core derives from
+        their signatures and docstrings.
+        """
+        model_facing = _MODEL_FACING.get(fn_name)
+        if model_facing is None:
+            return super().get_metadata_from_fn_name(fn_name, spec_functions=spec_functions)
+        description, fn_schema = model_facing
+        return ToolMetadata(name=fn_name, description=description, fn_schema=fn_schema)
 
     def _get_client(self) -> Any:
         """Create a new Octen client.
@@ -504,25 +690,21 @@ class OctenToolSpec(BaseToolSpec):
         time_range: Optional[TimeRange] = None,
         language: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Search the web across many angles in one call, for comparisons, research, surveys and questions with several distinct parts. Expands the question into multiple sub-queries and runs them concurrently.
+        """Broad Search: fan one question out into concurrent sub-queries.
 
-        USE WHEN the question has multiple distinct parts or entities that one search cannot cover: comparing vendors, products or pricing across many sources; literature reviews, market or landscape surveys; open-ended "what are the options for X" or "how do people solve Y"; a question that clearly decomposes into 3+ independent sub-questions; multi-angle questions about recent events (do NOT loop news_search).
-
-        DO NOT USE for anything another tool answers directly, since fanning out costs several times more and returns pages where those return the answer: a single fact, entity or document (use search); a company or the people in one, including its financials (use business_search); news or recent events on a single topic (use news_search); a real-world place, address or opening hours (use place_search); the URL of a site or docs page you could almost name (use pulse_search); a straight A-vs-B comparison of two known entities (two targeted search calls are cheaper). Do NOT call broad_search twice after a disappointing result; follow up with a targeted search on the specific gaps.
-
-        COST: roughly one search per sub-query, and notably higher latency than a single search. When in doubt, prefer search.
-
-        Results are grouped per sub-query and NOT deduplicated: the same URL may appear under several sub-queries. The filters apply to every sub-query.
+        The description and argument schema the model sees are in
+        _MODEL_FACING. Developer options come from broad_search_options.
 
         Args:
-            query (str): One natural-language question, max 500 chars. Resolve pronouns from the conversation first; do NOT pre-split it into sub-queries.
-            include_domains (Optional[List[str]]): Only return results from these domains, e.g. ["arxiv.org"].
-            exclude_domains (Optional[List[str]]): Drop results from these domains.
-            time_range (Optional[TimeRange]): Relative time window, one of "day", "week", "month", "year" (or "d", "w", "m", "y").
-            language (Optional[List[str]]): ISO 639-1 codes to filter results by, e.g. ["en", "ja"]. Supported: ar, de, en, es, fr, hi, id, it, ja, ko, nl, pl, pt, ru, th, tr, vi, zh.
+            query: The question, max 500 chars.
+            include_domains: Only return results from these domains.
+            exclude_domains: Drop results from these domains.
+            time_range: Relative time window.
+            language: ISO 639-1 codes to filter by.
 
         Returns:
-            {"data": ..., "request_id": ..., "warning": ...} with the API data as returned (warning only when present), or {"error": ...} when the call failed and may be retried or adjusted.
+            {"data", "request_id", "warning"?}, or {"error": ...} for errors
+            handed to the model.
         """
         from octen import SearchRequest
 
@@ -544,21 +726,21 @@ class OctenToolSpec(BaseToolSpec):
         time_range: Optional[TimeRange] = None,
         language: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Search recent news and return ranked articles (title, url, snippet): current events, headlines, timely reporting. Alongside the articles it normally returns subjects: the coverage grouped into storylines, each with a summary and the span it covers, so a "what happened with X" question is answerable without reading every article.
+        """News Search: ranked articles plus storylines.
 
-        include_domains and exclude_domains narrow the ranked articles only; the storylines are built from the open web either way. When the question restricts its sources ("what is Reuters saying about X"), answer from the articles, not the storylines.
-
-        USE FOR what is being reported right now: breaking events, announcements, coverage of a company or person over the last days or weeks. For a company or person profile (financials, key people, career history) use business_search, which returns structured cards instead of articles. For non-news web pages use search. For a multi-angle question spanning several independent subtopics, use broad_search rather than looping this tool.
+        The description and argument schema the model sees are in
+        _MODEL_FACING. Developer options come from news_search_options.
 
         Args:
-            query (str): What to find news about, max 500 chars.
-            include_domains (Optional[List[str]]): Only return articles from these domains, e.g. ["reuters.com"].
-            exclude_domains (Optional[List[str]]): Drop articles from these domains.
-            time_range (Optional[TimeRange]): Relative time window, one of "day", "week", "month", "year" (or "d", "w", "m", "y").
-            language (Optional[List[str]]): ISO 639-1 codes to filter articles by, e.g. ["en", "ja"]. Supported: ar, de, en, es, fr, hi, id, it, ja, ko, nl, pl, pt, ru, th, tr, vi, zh.
+            query: What to find news about, max 500 chars.
+            include_domains: Only return articles from these domains.
+            exclude_domains: Drop articles from these domains.
+            time_range: Relative time window.
+            language: ISO 639-1 codes to filter by.
 
         Returns:
-            {"data": ..., "request_id": ..., "warning": ...} with the API data as returned (warning only when present), or {"error": ...} when the call failed and may be retried or adjusted.
+            {"data", "request_id", "warning"?}, or {"error": ...} for errors
+            handed to the model.
         """
         from octen import NewsSearchRequest
 
@@ -580,23 +762,21 @@ class OctenToolSpec(BaseToolSpec):
         time_range: Optional[TimeRange] = None,
         language: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Look up a company or a person and get a structured card back, plus the ranked sources behind it. A company card carries the profile, identifiers, financial and stock metrics, key people and recent announcements; a person card carries the current position, career history and recent activity. Name two companies in one query and you get a card for each, same fields, ready to compare.
+        """Business Search: company and person cards plus ranked sources.
 
-        USE FOR any question about a company or the people in one, including the numbers: revenue, net income, gross profit by quarter and year, share price and 52-week range, funding rounds and who led them, headcount and web traffic, key people and their titles, career history, recent announcements. Also "what does this company do", due diligence, and how two of them compare. The card already holds those figures, so "what was their revenue last quarter" is one call here; reaching for search means reading a dozen pages for numbers this returns directly.
-
-        NOT FOR breaking coverage of an event (use news_search) or general web pages (use search). The domain, time and language filters narrow the ranked sources only, never the cards.
-
-        Examples: "NVIDIA company overview", "Lisa Su AMD CEO", "compare Stripe and Adyen payment processing".
+        The description and argument schema the model sees are in
+        _MODEL_FACING. Developer options come from business_search_options.
 
         Args:
-            query (str): The company, person or comparison to look up, max 500 chars.
-            include_domains (Optional[List[str]]): Only return ranked sources from these domains.
-            exclude_domains (Optional[List[str]]): Drop ranked sources from these domains.
-            time_range (Optional[TimeRange]): Relative time window for the ranked sources, one of "day", "week", "month", "year" (or "d", "w", "m", "y").
-            language (Optional[List[str]]): ISO 639-1 codes to filter the ranked sources by, e.g. ["en"]. Supported: ar, de, en, es, fr, hi, id, it, ja, ko, nl, pl, pt, ru, th, tr, vi, zh.
+            query: The company, person or comparison, max 500 chars.
+            include_domains: Only return ranked sources from these domains.
+            exclude_domains: Drop ranked sources from these domains.
+            time_range: Relative time window for the ranked sources.
+            language: ISO 639-1 codes to filter the ranked sources by.
 
         Returns:
-            {"data": ..., "request_id": ..., "warning": ...} with the API data as returned (warning only when present), or {"error": ...} when the call failed and may be retried or adjusted.
+            {"data", "request_id", "warning"?}, or {"error": ...} for errors
+            handed to the model.
         """
         from octen import BusinessSearchRequest
 
@@ -611,19 +791,17 @@ class OctenToolSpec(BaseToolSpec):
         )
 
     def pulse_search(self, query: str) -> Dict[str, Any]:
-        """When what is wanted is a web address rather than what is written on the page, this is the tool. It returns ranked candidate URLs with titles: the single most likely one, the top three, or a shortlist to choose from, whichever the question calls for. Official docs and API references ("github docs", "uv documentation", "python list methods"), help centres ("how do I return an amazon order"), a site you know exists ("youtube").
+        """Pulse Search: ranked candidate URLs for a site or page.
 
-        Prefer it over search for those: one inference predicts the URLs instead of searching and ranking them, so it answers in about 10ms for a fraction of the cost.
-
-        NOT FOR news or anything needing freshness (use news_search). NOT FOR a question that needs real retrieval across the open web, domain or language filters, or a time window: this tool has none of those, sees no fresh content, and is not a cheaper substitute for search.
-
-        URLs may come back without a scheme (e.g. "github.com/docs"); prepend "https://" before using one as a link.
+        The description and argument schema the model sees are in
+        _MODEL_FACING. Developer options come from pulse_search_options.
 
         Args:
-            query (str): What to find the destination for, e.g. "github docs". Max 500 chars.
+            query: What to find the address of, max 500 chars.
 
         Returns:
-            {"data": ..., "request_id": ..., "warning": ...} with the API data as returned (warning only when present), or {"error": ...} when the call failed and may be retried or adjusted.
+            {"data", "request_id", "warning"?}, or {"error": ...} for errors
+            handed to the model.
         """
         from octen import PulseSearchRequest
 
@@ -640,24 +818,25 @@ class OctenToolSpec(BaseToolSpec):
         country: Optional[str] = None,
         timezone: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Find real-world places and get each one back as a card: name, category, address, coordinates, phone, website, opening hours, status (open, closed, permanently closed), rating and review count. Pass latitude and longitude to search around a point, and each card then carries its distance in metres; add radius to cap how far. When you only know the city, pass city, region, country or timezone instead (no distance comes back that way). A query that names its own area ("ramen in Shinjuku") works without either.
+        """Place Search: real-world places as cards.
 
-        USE FOR anything with a location: "coffee shops near me", "family-friendly restaurants", "museums in Lisbon", "is this place open on Sunday", "what's their phone number". The cards answer these directly; search would return pages about places that then have to be read.
-
-        Pass the caller's location when the question is relative to them ("near me", "nearby", "closest") or names no area at all: without it such a query is not limited to anywhere. A query that names its own area does not need it.
+        The description and argument schema the model sees are in
+        _MODEL_FACING. Developer options come from place_search_options.
 
         Args:
-            query (str): What to look for, e.g. "coffee shops" or "ramen in Shinjuku". Max 500 chars.
-            latitude (Optional[float]): WGS84 latitude to search around, -90 to 90. Must be sent with longitude.
-            longitude (Optional[float]): WGS84 longitude to search around, -180 to 180. Must be sent with latitude.
-            radius (Optional[int]): Keep only places within this many metres of the point, 1 to 50000. Requires latitude and longitude.
-            city (Optional[str]): Approximate location when coordinates are unknown: city name.
-            region (Optional[str]): Approximate location: state, province or region.
-            country (Optional[str]): Approximate location: country name or code.
-            timezone (Optional[str]): Approximate location: IANA timezone, e.g. "Asia/Tokyo".
+            query: What to look for, max 500 chars.
+            latitude: WGS84 latitude; must be sent with longitude.
+            longitude: WGS84 longitude; must be sent with latitude.
+            radius: Metres around the point, 1-50000; needs both coordinates.
+            city: Approximate location, sent as user_location.
+            region: Approximate location, sent as user_location.
+            country: Approximate location, sent as user_location.
+            timezone: Approximate location (IANA), sent as user_location.
 
         Returns:
-            {"data": ..., "request_id": ..., "warning": ...} with the API data as returned (warning only when present, e.g. "places_unavailable"), or {"error": ...} when the call failed and may be retried or adjusted.
+            {"data", "request_id", "warning"?}, or {"error": ...} for errors
+            handed to the model. A "places_unavailable" warning means the
+            place engine did not answer.
         """
         from octen import PlaceSearchRequest
 

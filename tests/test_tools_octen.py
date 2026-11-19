@@ -143,8 +143,6 @@ def test_pulse_modes_accepted(mode: str) -> None:
         (OctenTimeoutError(request_sent=False), True),
         (OctenConnectionError(request_sent=False), True),
         (OctenAPIError("Request Timeout", status_code=408), True),
-        (OctenAPIError("malformed successful response", status_code=200), True),
-        (OctenAPIError("upstream busy", status_code=200, response_data={"code": 503}), True),
         # An envelope that reports an auth or access failure stays a config error.
         (OctenAPIError("bad key", status_code=200, response_data={"code": 401}), False),
         (OctenAPIError("no balance", status_code=200, response_data={"code": 403}), False),
@@ -194,3 +192,18 @@ def test_classify_warns_model_when_request_may_have_been_sent(exc: Exception) ->
 )
 def test_classify_unsent_failure_keeps_plain_message(exc: Exception) -> None:
     assert _classify(exc) == str(exc)
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        OctenAPIError("malformed successful response", status_code=200),
+        OctenAPIError("upstream busy", status_code=200, response_data={"code": 503}),
+        OctenAPIError("partial", status_code=206, response_data=[]),
+    ],
+)
+def test_classify_failed_2xx_warns_model_not_to_retry(exc: Exception) -> None:
+    message = _classify(exc)
+    assert message is not None
+    assert message.startswith(str(exc))
+    assert "may already have reached the server and been billed" in message

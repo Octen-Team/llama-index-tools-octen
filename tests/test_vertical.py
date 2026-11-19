@@ -87,10 +87,41 @@ def test_tool_list_schemas() -> None:
         schema = tools[name].metadata.fn_schema
         assert schema is not None
         assert set(schema.model_fields) == fields, name
-        assert schema.model_json_schema()["required"] == ["query"], name
-        # Descriptions come from the docstring, so every model arg has one.
+        json_schema = schema.model_json_schema()
+        assert json_schema["required"] == ["query"], name
+        # Check the JSON schema the model receives, not model_fields: some
+        # llama-index-core versions set descriptions that never reach it.
+        for field, prop in json_schema["properties"].items():
+            assert prop.get("description"), f"{name}.{field} has no description"
+
+
+def test_schema_matches_function_signature() -> None:
+    tools = {t.metadata.name: t for t in _spec().to_tool_list()}
+    for name in NEW_FUNCTIONS:
+        schema = tools[name].metadata.fn_schema
+        assert schema is not None
+        params = inspect.signature(getattr(OctenToolSpec, name)).parameters
+        assert list(schema.model_fields) == [p for p in params if p != "self"], name
         for field, info in schema.model_fields.items():
-            assert info.description, f"{name}.{field} has no description"
+            assert info.annotation == params[field].annotation, (name, field)
+            assert info.default == params[field].default or info.is_required(), (name, field)
+
+
+def test_new_tools_pass_openai_length_check() -> None:
+    for tool in _spec().to_tool_list():
+        if tool.metadata.name in NEW_FUNCTIONS:
+            tool.metadata.to_openai_tool()  # default 1024-char check
+
+
+def test_old_tools_metadata_unchanged() -> None:
+    from llama_index.core.tools import FunctionTool
+
+    spec = _spec()
+    tools = {t.metadata.name: t for t in spec.to_tool_list()}
+    for name in ["search", "search_and_retrieve_documents",
+                 "search_and_retrieve_highlights", "current_date"]:
+        expected = FunctionTool.from_defaults(fn=getattr(spec, name)).metadata
+        assert tools[name].metadata.description == expected.description, name
 
 
 @pytest.mark.parametrize(
@@ -484,6 +515,15 @@ def test_timeout_after_send_tells_model_not_to_retry(octen_cls: MagicMock) -> No
     assert "may already have reached the server and been billed" in error
 
 
+def test_failed_2xx_tells_model_not_to_retry(octen_cls: MagicMock) -> None:
+    _sdk_method(octen_cls, "news_search").side_effect = OctenAPIError(
+        "malformed successful response", status_code=200
+    )
+    error = _spec().news_search("q")["error"]
+    assert error.startswith("malformed successful response")
+    assert "may already have reached the server and been billed" in error
+
+
 def test_model_visible_description_keeps_instructions() -> None:
     # The model sees ToolMetadata.description; it must carry the docstring's
     # instructions, not only the summary line.
@@ -492,11 +532,14 @@ def test_model_visible_description_keeps_instructions() -> None:
         "news_search": [
             "narrow the ranked articles only",
             "answer from the articles, not the storylines",
+            "use business_search",
         ],
-        "business_search": ["narrow the ranked sources only, never the cards"],
-        "broad_search": ["do NOT pre-split it into sub-queries", "Do NOT call broad_search twice"],
-        "pulse_search": ['prepend "https://"'],
-        "place_search": ["Must be sent with longitude", "Requires latitude and longitude",
+        "business_search": ["narrow the ranked sources only, never the cards",
+                            "use news_search"],
+        "broad_search": ["do not pre-split it", "Do not call it twice",
+                         "when in doubt, prefer search"],
+        "pulse_search": ['prepend "https://"', "sees no fresh content"],
+        "place_search": ["always together", "only with both coordinates",
                          "Pass the caller's location"],
     }
     for name, phrases in expected.items():
