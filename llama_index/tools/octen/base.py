@@ -258,12 +258,18 @@ def _describe(exc: ValidationError) -> str:
 
 def _check_timeout(label: str, timeout: Any) -> None:
     """Reject a timeout that is not a finite, positive number of seconds."""
-    if timeout is not None and (
-        isinstance(timeout, bool)
-        or not isinstance(timeout, (int, float))
-        or not math.isfinite(timeout)
-        or timeout <= 0
-    ):
+    if timeout is None:
+        return
+    try:
+        valid = (
+            not isinstance(timeout, bool)
+            and isinstance(timeout, (int, float))
+            and math.isfinite(timeout)
+            and timeout > 0
+        )
+    except OverflowError:  # an int too large for a float
+        valid = False
+    if not valid:
         raise ValueError(f"{label}: timeout must be a positive number of seconds, got {timeout!r}")
 
 

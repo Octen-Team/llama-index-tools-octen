@@ -194,7 +194,7 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 
 ### Retries
 
-The spec creates its `octen` clients with `retry_after_send=False`, for all functions including `search`, `search_and_retrieve_documents` and `search_and_retrieve_highlights`: a request that timed out or lost its connection after it was sent is not retried, because it may already have been served and billed. Failures before the request is sent, and 408/429/5xx responses, are still retried. If you also call the `octen` SDK directly, consider passing `retry_after_send=False` there too.
+The spec creates its `octen` clients with `retry_after_send=False`, for all functions including `search`, `search_and_retrieve_documents` and `search_and_retrieve_highlights`. This stops the SDK from retrying a request that timed out or lost its connection after it was sent, which may already have been served and billed. It does not rule out a second charge: failures before the request is sent are still retried, and so are 408, 429, 500, 502, 503 and 504 responses. A gateway can return 502 or 504 after the backend has finished, so a status-code retry can still be billed twice. If you also call the `octen` SDK directly, consider passing `retry_after_send=False` there too.
 
 ### Per-query Parameters
 

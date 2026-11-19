@@ -556,3 +556,14 @@ def test_shared_timeout_rejected_at_construction(bad: Any) -> None:
 def test_shared_timeout_none_and_positive_accepted() -> None:
     OctenToolSpec(api_key="k", timeout=None)
     OctenToolSpec(api_key="k", timeout=2.5)
+
+
+def test_huge_int_shared_timeout_rejected() -> None:
+    # math.isfinite raises OverflowError on ints too large for a float.
+    with pytest.raises(ValueError, match="OctenToolSpec: timeout"):
+        OctenToolSpec(api_key="k", timeout=10**400)
+
+
+def test_huge_int_option_timeout_rejected() -> None:
+    with pytest.raises(ValueError, match="news_search_options: timeout"):
+        OctenToolSpec(api_key="k", news_search_options={"timeout": 10**400})

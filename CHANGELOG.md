@@ -36,7 +36,9 @@
   and for the existing `search`, `search_and_retrieve_documents` and
   `search_and_retrieve_highlights` alike: a request that timed out or lost
   its connection after it was sent is no longer retried, since it may
-  already have been served and billed.
+  already have been served and billed. Responses with status 408, 429, 500,
+  502, 503 or 504 are still retried by the SDK, and a 502 or 504 can arrive
+  after the backend finished, so a second charge remains possible.
 - The constructor's `timeout` must be a finite number of seconds greater than
   0 (or `None`); other values raise `ValueError` instead of failing on the
   first request.

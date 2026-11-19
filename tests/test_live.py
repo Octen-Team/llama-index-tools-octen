@@ -63,7 +63,8 @@ def test_live_business_search() -> None:
     spec = _spec(business_search_options={"count": 1, "entities": {"count": 1}})
     result = spec.business_search("NVIDIA company overview")
     _check("business_search", result)
-    assert result["data"].get("results") or result["data"].get("entities")
+    entities = result["data"].get("entities") or []
+    assert any(entity.get("name") for entity in entities), entities
 
 
 def test_live_pulse_search() -> None:
