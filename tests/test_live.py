@@ -1,11 +1,15 @@
 """Live calls against the Octen API. Billed as usual.
 
 Skipped unless OCTEN_LIVE=1 and OCTEN_API_KEY are set. Each test makes at
-most one billed request with the smallest result count the endpoint allows.
+most one billed request with the smallest result count the endpoint allows,
+except the search_premier tests, which make two (a filtered call and a
+same-query control) with a small count.
 """
 
 import os
-from typing import Any, Dict, List
+import re
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import pytest
@@ -21,7 +25,7 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(autouse=True)
 def _single_attempt_clients(monkeypatch: Any) -> None:
-    # Live calls are billed: no SDK retries here, so each test bills at most once.
+    # Live calls are billed: no SDK retries here, so each request bills at most once.
     from octen import Octen
 
     def get_client(self: OctenToolSpec) -> Octen:
@@ -117,6 +121,29 @@ def test_live_developer_count_out_of_range_raises() -> None:
         _spec(news_search_options={"count": 1000})
 
 
+# The SDK's own Premier live tests use this query; its results span several years.
+TIME_QUERY = "electric vehicle battery"
+YEAR_2025 = ("2025-01-01T00:00:00Z", "2025-12-31T23:59:59Z")
+_STAMP = re.compile(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(Z|[+-]\d\d:\d\d)?")
+
+
+def _ts(value: Any) -> Optional[datetime]:
+    """None when absent; raises on a value that does not parse, so it cannot pass unchecked."""
+    if value is None or value == "":
+        return None
+    match = _STAMP.fullmatch(value) if isinstance(value, str) else None
+    if match is None:
+        raise ValueError(f"unparseable timestamp {value!r}")
+    base, frac, tz = match.groups()
+    # fromisoformat before 3.11 takes neither Z nor fractions other than 3 or 6 digits.
+    frac = "." + (frac + "000000")[:6] if frac else ""
+    return datetime.fromisoformat(base + frac + ("+00:00" if tz in (None, "Z") else tz))
+
+
+def _published(result: Dict[str, Any]) -> List[Optional[datetime]]:
+    return [_ts(r.get("time_published")) for r in result["data"]["results"]]
+
+
 def _hosts(result: Dict[str, Any]) -> List[str]:
     return [urlparse(r["url"]).hostname or "" for r in result["data"]["results"]]
 
@@ -170,21 +197,42 @@ def test_live_search_premier_developer_options(monkeypatch: Any) -> None:
     assert all(r.get("full_content") for r in result["data"]["results"]), result
 
 
-def test_live_search_premier_time_window() -> None:
+def _premier(**options: Any) -> Dict[str, Any]:
     spec = _spec(
-        search_premier_options={
-            "count": 3,
-            "time_basis": "published",
-            "start_time": "2025-01-01T00:00:00Z",
-            "end_time": "2025-12-31T23:59:59Z",
-        }
+        search_premier_options={"count": 5, "time_basis": "published", **options}
     )
-    result = spec.search_premier("EU AI Act enforcement timeline")
-    _check("search_premier time window", result)
-    published = [r.get("time_published") or "" for r in result["data"]["results"]]
-    print(f"time_published={published}")
+    return spec.search_premier(TIME_QUERY)
+
+
+def test_live_search_premier_time_window() -> None:
+    # The filtered call first, then the same query without bounds as the control.
+    start, end = _ts(YEAR_2025[0]), _ts(YEAR_2025[1])
+    assert start and end
+    result = _premier(start_time=YEAR_2025[0], end_time=YEAR_2025[1])
+    _check("search_premier 2025", result)
+    published = _published(result)
+    print(f"2025 time_published={published}")
     assert published, result
-    assert all(p.startswith("2025-") for p in published), published
+    assert all(t is not None and start <= t <= end for t in published), published
+
+    control = _premier()
+    _check("search_premier control", control)
+    print(f"control time_published={_published(control)}")
+    assert any(t and not start <= t <= end for t in _published(control)), control
+
+
+def test_live_search_premier_each_time_bound() -> None:
+    # Without start_time a result before the window comes back, and without end_time one after.
+    start, end = _ts(YEAR_2025[0]), _ts(YEAR_2025[1])
+    assert start and end
+    before = _premier(end_time=YEAR_2025[1])
+    after = _premier(start_time=YEAR_2025[0])
+    _check("search_premier end-only", before)
+    _check("search_premier start-only", after)
+    print(f"end-only time_published={_published(before)}")
+    print(f"start-only time_published={_published(after)}")
+    assert any(t and t < start for t in _published(before)), before
+    assert any(t and t > end for t in _published(after)), after
 
 
 def test_live_search_premier_model_cannot_pass_count() -> None:
