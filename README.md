@@ -113,6 +113,22 @@ results = tool.search(
 )
 ```
 
+## Web Search Premier
+
+`search_premier` searches the web with deeper retrieval and reranking, for questions that need the exact page holding the answer: a specific fact, a detail deep inside a page, a niche document or a named report. It takes the same request options and returns the same response shape as Web Search; for low-latency lookups use `search` instead. It follows the same design as the vertical functions below: the model sets only `query`, `include_domains` and `exclude_domains`, and everything else comes from `search_premier_options`.
+
+```python
+tool = OctenToolSpec(
+    search_premier_options={"count": 5, "highlight": {"enable": True, "max_tokens": 1024}},
+)
+
+result = tool.search_premier("Kafka default retention period for topics")
+for r in result["data"]["results"]:
+    print(r["title"], r["url"])
+```
+
+`search_premier_options` accepts `count` (1-100), `result_type` (`"standard"` or `"dynamic"`), `highlight` and `full_content` (only the `enable` and `max_tokens` keys), `include_text` and `exclude_text` (up to 5, 30 characters each), `language` (ISO 639-1 codes), `time_basis`, `time_range`, `start_time` and `end_time` (ISO 8601), `format`, `safesearch`, `include_images` and `timeout`. `result_type="dynamic"` returns only relevant results, up to `count`, and adjusts the highlight length per result. Return value and errors are as described for the vertical functions below.
+
 ## Broad, News, Business, Pulse and Place Search
 
 These five functions give the model only the query and filters. Billing-related options and limits, such as result counts, content options and Broad Search's `max_queries`, are set by you when you build the spec. They bound the cost of a call rather than fix it: Broad Search, for example, is billed per sub-query, and `max_queries` is an upper limit; how many sub-queries a call actually runs depends on the query.
@@ -135,6 +151,7 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 | `business_search` | `query`, `include_domains`, `exclude_domains`, `time_range`, `language` | `count`, `highlight`, `full_content`, `entities`, `timeout` |
 | `pulse_search` | `query` | `count`, `highlight`, `full_content`, `mode`, `timeout` |
 | `place_search` | `query`, `latitude`, `longitude`, `radius`, `city`, `region`, `country`, `timezone` | `places`, `web_search`, `timeout` |
+| `search_premier` | `query`, `include_domains`, `exclude_domains` | `count`, `result_type`, `highlight`, `full_content`, `include_text`, `exclude_text`, `language`, `time_basis`, `time_range`, `start_time`, `end_time`, `format`, `safesearch`, `include_images`, `timeout` |
 
 - Options you leave out are not sent, so the API defaults apply. Values are passed to the [`octen`](https://pypi.org/project/octen/) SDK as-is (`dict`s or the SDK's option models). They are checked when the spec is built: a key that is not listed for a function, or a value the SDK would reject (for example `count=1000`), raises `ValueError`. `timeout` in an options dict overrides the spec-level `timeout` for that function.
 - `time_range` is one of `day`, `week`, `month`, `year` (or `d`, `w`, `m`, `y`). `language` is a list of ISO 639-1 codes.
@@ -175,6 +192,8 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 
 - `place_search`: Real-world places as cards with address, opening hours, rating and distance.
 
+- `search_premier`: Web search with deeper retrieval and reranking, for hard-to-find specific facts and pages.
+
 - `current_date`: Utility for the agent to get today's date (useful for time-filtered searches).
 
 ## Configuration
@@ -191,6 +210,7 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 | `business_search_options` | `dict` | `None` | Keyword-only. Options for `business_search` |
 | `pulse_search_options` | `dict` | `None` | Keyword-only. Options for `pulse_search` |
 | `place_search_options` | `dict` | `None` | Keyword-only. Options for `place_search` |
+| `search_premier_options` | `dict` | `None` | Keyword-only. Options for `search_premier` |
 
 ### Retries
 

@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.3.0 (2026-11-21)
+
+### Upgrading from 0.2.x
+
+Existing functions are unchanged: same parameters, same requests, same return
+shapes and errors. Things that do change:
+
+- **`to_tool_list()` now returns ten tools instead of nine.** An agent built
+  with `OctenToolSpec(...).to_tool_list()` also gets `search_premier`, and the
+  model may call it; it has its own pricing. To keep the 0.2.x tool set, pass
+  `spec_functions` to `to_tool_list()` without `"search_premier"`.
+- **`octen` is upgraded to 0.13.0 or newer.** If your project pins `octen` below
+  0.13.0, dependency resolution fails until you relax that pin.
+
+### Added
+
+- `search_premier`: Web Search Premier, web search with deeper retrieval and
+  reranking for hard-to-find specific facts and pages.
+  - The model sets only `query`, `include_domains` and `exclude_domains`.
+    Result count, `result_type`, highlight / full content, text, language and
+    time filters, `format`, `safesearch`, `include_images` and `timeout` come
+    from the new keyword-only constructor argument `search_premier_options`,
+    checked when the spec is built; `highlight` and `full_content` accept only
+    the `enable` and `max_tokens` keys, `language` only the documented ISO
+    639-1 codes, and `start_time` / `end_time` must be ISO 8601 times.
+  - Return shape and error handling are the same as the vertical functions.
+
+### Changed
+
+- Requires `octen>=0.13.0,<1` (the release that adds `search_premier`).
+
 ## 0.2.0
 
 ### Upgrading from 0.1.x
