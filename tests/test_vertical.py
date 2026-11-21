@@ -610,6 +610,8 @@ def test_huge_int_option_timeout_rejected() -> None:
         ({"highlight": {"max_tokens": 99}}, "highlight"),
         ({"full_content": {"max_tokens": 100001}}, "full_content"),
         ({"full_content": {"enabled": True}}, "full_content"),
+        ({"full_content": {1: True, "enabled": True}}, "full_content"),
+        ({"highlight": {None: 1}}, "highlight"),
         (
             {"highlight": octen.HighlightOptions(enable=True, maxtokens=300)},
             "highlight",
@@ -649,15 +651,47 @@ def test_premier_model_or_unknown_key_rejected_as_option(key: str) -> None:
         _spec(search_premier_options={key: "x"})
 
 
-@pytest.mark.parametrize(
-    "value", ["2025-01-01", "2025-01-01T00:00:00", "2025-01-01T00:00:00.123Z"]
-)
+# RFC 3339 date-time, the "format: date-time" of
+# https://docs.octen.ai/api-reference/search-premier.md
+RFC3339_VALID = [
+    "2025-01-01T00:00:00Z",
+    "2025-01-01T00:00:00.1Z",
+    "2025-01-01T00:00:00.123456Z",
+    "2025-06-30T23:59:59+08:00",
+    "2025-01-01T00:00:00-05:30",
+    "2024-02-29T12:00:00Z",
+]
+RFC3339_INVALID = [
+    "2025-01-01",
+    "2025-01-01T00:00:00",
+    "2025-01-01X00:00:00Z",
+    "2025-01-01 00:00:00Z",
+    "2025-13-01T00:00:00Z",
+    "2025-02-29T00:00:00Z",
+    "2025-01-01T24:00:00Z",
+    "2025-01-01T00:00:00+24:00",
+    "2025-01-01T00:00:00.Z",
+    "2025-01-01T00:00:00Z\n",
+    "\uff12025-01-01T00:00:00Z",
+    "20250101T000000Z",
+    "last week",
+]
+
+
+@pytest.mark.parametrize("value", RFC3339_VALID)
 def test_premier_iso_times_accepted(octen_cls: MagicMock, value: str) -> None:
     _spec(
         search_premier_options={"start_time": value, "end_time": value}
     ).search_premier("q")
     kwargs = _sdk_method(octen_cls, "search_premier").call_args.kwargs
     assert (kwargs["start_time"], kwargs["end_time"]) == (value, value)
+
+
+@pytest.mark.parametrize("field", ["start_time", "end_time"])
+@pytest.mark.parametrize("value", RFC3339_INVALID)
+def test_premier_non_rfc3339_time_rejected(value: str, field: str) -> None:
+    with pytest.raises(ValueError, match=f"search_premier_options.*{field}"):
+        _spec(search_premier_options={field: value})
 
 
 def test_premier_sdk_option_objects_accepted(octen_cls: MagicMock) -> None:

@@ -5,6 +5,7 @@ import datetime
 import logging
 import math
 import os
+import re
 import warnings
 from typing import Any, Dict, FrozenSet, List, Literal, Optional, Tuple, Type
 
@@ -243,6 +244,28 @@ _ALLOWED_OPTIONS: Dict[str, FrozenSet[str]] = {
 }
 
 # Values documented at https://docs.octen.ai/api-reference/search-premier.md
+# RFC 3339 date-time, the "format: date-time" of the Web Search Premier API reference.
+_RFC3339 = re.compile(
+    r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})"
+    r"(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))",
+    re.ASCII,
+)
+
+
+def _is_rfc3339(value: Any) -> bool:
+    match = _RFC3339.fullmatch(value) if isinstance(value, str) else None
+    if match is None:
+        return False
+    year, month, day, hour, minute, second, off_hour, off_minute = match.groups()
+    try:
+        datetime.datetime(
+            int(year), int(month), int(day), int(hour), int(minute), int(second)
+        )
+    except ValueError:
+        return False
+    return off_hour is None or (int(off_hour) <= 23 and int(off_minute) <= 59)
+
+
 _LANGUAGES = frozenset("ar de en es fr hi id it ja ko nl pl pt ru th tr vi zh".split())
 
 
@@ -357,9 +380,11 @@ def _check_premier_options(options: Dict[str, Any]) -> None:
             given = set(value.model_extra or {})
         else:
             given = set(value or {}) if isinstance(value, dict) else set()
-        unknown = sorted(given - {"enable", "max_tokens"})
+        # Keys may be of any type, so compare and report them via repr.
+        unknown = sorted(given - {"enable", "max_tokens"}, key=repr)
         if unknown:
-            raise ValueError(f"{key}: unknown option {', '.join(unknown)}")
+            names = ", ".join(repr(k) for k in unknown)
+            raise ValueError(f"{key}: unknown option {names}")
     language = options.get("language")
     if language is not None:
         if not isinstance(language, list) or not all(
@@ -371,14 +396,10 @@ def _check_premier_options(options: Dict[str, Any]) -> None:
         value = options.get(key)
         if value is None:
             continue
-        try:
-            # fromisoformat only accepts a trailing "Z" from Python 3.11 on.
-            text = value[:-1] + "+00:00" if value.endswith("Z") else value
-            datetime.datetime.fromisoformat(text)
-        except (TypeError, ValueError, AttributeError):
+        if not _is_rfc3339(value):
             raise ValueError(
-                f"{key} must be an ISO 8601 time, e.g. 2025-01-01T00:00:00Z"
-            ) from None
+                f"{key} must be an RFC 3339 time, e.g. 2025-01-01T00:00:00Z"
+            )
 
 
 def _invalid_model_args(request_model: Any, model_args: Dict[str, Any]) -> Optional[str]:
