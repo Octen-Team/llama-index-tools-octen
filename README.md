@@ -127,7 +127,7 @@ for r in result["data"]["results"]:
     print(r["title"], r["url"])
 ```
 
-`search_premier_options` accepts `count` (1-100), `result_type` (`"standard"` or `"dynamic"`), `highlight` and `full_content` (only the `enable` and `max_tokens` keys), `include_text` and `exclude_text` (up to 5, 30 characters each), `language` (ISO 639-1 codes), `time_basis`, `time_range`, `start_time` and `end_time` (ISO 8601), `format`, `safesearch`, `include_images` and `timeout`. `result_type="dynamic"` returns only relevant results, up to `count`, and adjusts the highlight length per result. Return value and errors are as described for the vertical functions below.
+`search_premier_options` accepts `count` (1-100), `result_type` (`"standard"` or `"dynamic"`), `highlight` and `full_content` (only the `enable` and `max_tokens` keys), `include_text` and `exclude_text` (up to 5, 30 characters each), `language` (ISO 639-1 codes), `time_basis`, `time_range`, `start_time` and `end_time` (RFC 3339, e.g. `2025-01-01T00:00:00Z`), `format`, `safesearch`, `include_images` and `timeout`. `result_type="dynamic"` returns only relevant results, up to `count`, and adjusts the highlight length per result. Return value and errors are as described for the vertical functions below.
 
 ## Broad, News, Business, Pulse and Place Search
 

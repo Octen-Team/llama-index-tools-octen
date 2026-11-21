@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 (2026-11-21)
+## 0.3.0
 
 ### Upgrading from 0.2.x
 
@@ -24,7 +24,8 @@ shapes and errors. Things that do change:
     from the new keyword-only constructor argument `search_premier_options`,
     checked when the spec is built; `highlight` and `full_content` accept only
     the `enable` and `max_tokens` keys, `language` only the documented ISO
-    639-1 codes, and `start_time` / `end_time` must be ISO 8601 times.
+    639-1 codes, and `start_time` / `end_time` must be RFC 3339
+    times (e.g. `2025-01-01T00:00:00Z`).
   - Return shape and error handling are the same as the vertical functions.
 
 ### Changed
