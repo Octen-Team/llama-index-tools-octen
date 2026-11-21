@@ -243,8 +243,9 @@ _ALLOWED_OPTIONS: Dict[str, FrozenSet[str]] = {
     },
 }
 
-# Values documented at https://docs.octen.ai/api-reference/search-premier.md
 # RFC 3339 date-time, the "format: date-time" of the Web Search Premier API reference.
+# Stricter on purpose: uppercase T and Z only, as in the reference's example, and no leap
+# second (:60), which Python's datetime cannot represent.
 _RFC3339 = re.compile(
     r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})"
     r"(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))",
@@ -266,6 +267,7 @@ def _is_rfc3339(value: Any) -> bool:
     return off_hour is None or (int(off_hour) <= 23 and int(off_minute) <= 59)
 
 
+# Values documented at https://docs.octen.ai/api-reference/search-premier.md
 _LANGUAGES = frozenset("ar de en es fr hi id it ja ko nl pl pt ru th tr vi zh".split())
 
 
