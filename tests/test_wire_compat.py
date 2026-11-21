@@ -1,7 +1,9 @@
 """The requests the existing functions send stay unchanged across releases.
 
-The expected bodies were recorded from the 0.2.0 code with the same inputs; a change
-here means a 0.2.0 function now sends a different request.
+EXPECTED was captured by running _capture() on llama-index-tools-octen 0.2.0
+(origin/main 4a023bc) with octen 0.12.0, its minimum supported version; this branch
+runs the same inputs with octen 0.13.0. A difference means a 0.2.0 function now sends
+a different request, whether from this package or from the octen upgrade.
 """
 
 import json
@@ -85,7 +87,7 @@ def _calls() -> List[Tuple[str, Dict[str, Any], Dict[str, Any]]]:
     ]
 
 
-# Recorded from llama-index-tools-octen 0.2.0 (origin/main 4a023bc) with octen 0.13.0.
+# Captured from 0.2.0 (4a023bc) with octen 0.12.0; see the module docstring.
 EXPECTED: Dict[str, Call] = {
     "search": (
         "POST",
