@@ -79,6 +79,17 @@ class _BusinessSearchArgs(BaseModel):
     )
 
 
+class _SearchPremierArgs(BaseModel):
+    query: str = Field(description="The question or search query, max 500 chars.")
+    include_domains: Optional[List[str]] = Field(
+        default=None,
+        description='Only return results from these domains, e.g. ["arxiv.org"].',
+    )
+    exclude_domains: Optional[List[str]] = Field(
+        default=None, description="Drop results from these domains."
+    )
+
+
 class _PulseSearchArgs(BaseModel):
     query: str = Field(
         description='What to find the address of, e.g. "github docs". Max 500 chars.'
@@ -185,6 +196,18 @@ _MODEL_FACING: Dict[str, Tuple[str, Type[BaseModel]]] = {
         'its own area ("ramen in Shinjuku") needs neither.',
         _PlaceSearchArgs,
     ),
+    "search_premier": (
+        "Search the live web with deeper retrieval and reranking than search, and "
+        "return ranked results (title, url, highlight). It searches more broadly and "
+        "ranks more carefully, so the page that holds the answer ranks higher, and each "
+        "highlight is the passage most relevant to the query from the whole page. Use "
+        "for questions that need the exact page holding the answer: a specific fact, a "
+        "detail deep inside a page, a niche or long-tail document, or a named report, "
+        "filing or document. Pass the question as is. Not for quick, low-latency "
+        "lookups (use search); for a multi-part question use broad_search. Narrow with "
+        "include_domains and exclude_domains.",
+        _SearchPremierArgs,
+    ),
 }
 
 
@@ -203,7 +226,24 @@ _ALLOWED_OPTIONS: Dict[str, FrozenSet[str]] = {
     "business_search_options": _COMMON_OPTIONS | {"entities"},
     "pulse_search_options": _COMMON_OPTIONS | {"mode"},
     "place_search_options": frozenset({"places", "web_search", "timeout"}),
+    "search_premier_options": _COMMON_OPTIONS
+    | {
+        "result_type",
+        "include_text",
+        "exclude_text",
+        "language",
+        "time_basis",
+        "time_range",
+        "start_time",
+        "end_time",
+        "format",
+        "safesearch",
+        "include_images",
+    },
 }
+
+# Values documented at https://docs.octen.ai/api-reference/search-premier.md
+_LANGUAGES = frozenset("ar de en es fr hi id it ja ko nl pl pt ru th tr vi zh".split())
 
 
 _MAY_HAVE_BEEN_SENT = (
@@ -297,10 +337,48 @@ def _validate_option_values(name: str, options: Dict[str, Any]) -> None:
                 "business_search_options": octen.BusinessSearchRequest,
                 "pulse_search_options": octen.PulseSearchRequest,
                 "place_search_options": octen.PlaceSearchRequest,
+                "search_premier_options": octen.PremierSearchRequest,
             }[name]
+            if name == "search_premier_options":
+                _check_premier_options(fields)
             request_model(query=query, **fields)
     except ValidationError as exc:
         raise ValueError(f"{name} has an invalid value: {_describe(exc)}") from exc
+    except ValueError as exc:
+        raise ValueError(f"{name} has an invalid value: {exc}") from None
+
+
+def _check_premier_options(options: Dict[str, Any]) -> None:
+    """Checks octen's PremierSearchRequest leaves out; each would fail on every call."""
+    for key in ("highlight", "full_content"):
+        value = options.get(key)
+        # octen keeps unknown keys in these, so a typo like "enabled" would do nothing.
+        if isinstance(value, BaseModel):
+            given = set(value.model_extra or {})
+        else:
+            given = set(value or {}) if isinstance(value, dict) else set()
+        unknown = sorted(given - {"enable", "max_tokens"})
+        if unknown:
+            raise ValueError(f"{key}: unknown option {', '.join(unknown)}")
+    language = options.get("language")
+    if language is not None:
+        if not isinstance(language, list) or not all(
+            isinstance(code, str) and code in _LANGUAGES for code in language
+        ):
+            codes = ", ".join(sorted(_LANGUAGES))
+            raise ValueError(f"language must be a list of: {codes}")
+    for key in ("start_time", "end_time"):
+        value = options.get(key)
+        if value is None:
+            continue
+        try:
+            # fromisoformat only accepts a trailing "Z" from Python 3.11 on.
+            text = value[:-1] + "+00:00" if value.endswith("Z") else value
+            datetime.datetime.fromisoformat(text)
+        except (TypeError, ValueError, AttributeError):
+            raise ValueError(
+                f"{key} must be an ISO 8601 time, e.g. 2025-01-01T00:00:00Z"
+            ) from None
 
 
 def _invalid_model_args(request_model: Any, model_args: Dict[str, Any]) -> Optional[str]:
@@ -331,6 +409,7 @@ class OctenToolSpec(BaseToolSpec):
         "business_search",
         "pulse_search",
         "place_search",
+        "search_premier",
         "current_date",
     ]
 
@@ -347,6 +426,7 @@ class OctenToolSpec(BaseToolSpec):
         business_search_options: Optional[Dict[str, Any]] = None,
         pulse_search_options: Optional[Dict[str, Any]] = None,
         place_search_options: Optional[Dict[str, Any]] = None,
+        search_premier_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize with parameters.
 
@@ -367,6 +447,10 @@ class OctenToolSpec(BaseToolSpec):
                 count, highlight, full_content, mode, timeout.
             place_search_options: Options sent on every place_search call:
                 places, web_search, timeout.
+            search_premier_options: Options sent on every search_premier call:
+                count, result_type, highlight, full_content, include_text,
+                exclude_text, language, time_basis, time_range, start_time,
+                end_time, format, safesearch, include_images, timeout.
 
         Raises:
             ValueError: if no API key is available, or an options dict holds
@@ -384,6 +468,7 @@ class OctenToolSpec(BaseToolSpec):
             "business_search_options": business_search_options,
             "pulse_search_options": pulse_search_options,
             "place_search_options": place_search_options,
+            "search_premier_options": search_premier_options,
         }
         self._options: Dict[str, Dict[str, Any]] = {}
         for name, options in given.items():
@@ -874,6 +959,36 @@ class OctenToolSpec(BaseToolSpec):
             longitude=longitude,
             radius=radius,
             user_location={"type": "approximate", **location} if location else None,
+        )
+
+    def search_premier(
+        self,
+        query: str,
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Web Search Premier: web search with deeper retrieval and reranking.
+
+        The description and argument schema the model sees are in
+        _MODEL_FACING. Developer options come from search_premier_options.
+
+        Args:
+            query: The question or search query, max 500 chars.
+            include_domains: Only return results from these domains.
+            exclude_domains: Drop results from these domains.
+
+        Returns:
+            {"data", "request_id", "warning"?}, or {"error": ...} for errors
+            handed to the model.
+        """
+        from octen import PremierSearchRequest
+
+        return self._vertical_search(
+            "search_premier",
+            PremierSearchRequest,
+            query=query,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
         )
 
     def _vertical_search(
