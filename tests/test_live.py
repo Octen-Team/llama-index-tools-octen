@@ -234,8 +234,13 @@ def test_live_search_premier_each_time_bound() -> None:
     _check("search_premier start-only", after)
     print(f"end-only time_published={_published(before)}")
     print(f"start-only time_published={_published(after)}")
-    assert any(t and t < start for t in _published(before)), before
-    assert any(t and t > end for t in _published(after)), after
+    # Each call keeps its own bound, and its control shows the result on the other side.
+    before_dated = [t for t in _published(before) if t]
+    after_dated = [t for t in _published(after) if t]
+    assert before_dated and all(t <= end for t in before_dated), before
+    assert after_dated and all(t >= start for t in after_dated), after
+    assert any(t < start for t in before_dated), before
+    assert any(t > end for t in after_dated), after
 
 
 def test_live_search_premier_model_cannot_pass_count() -> None:
