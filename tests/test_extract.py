@@ -5,6 +5,7 @@ octen 0.13.0 (octen/resources/extract.py, octen/models/extract.py).
 """
 
 import inspect
+import itertools
 import logging
 from collections import deque
 from typing import Any, Dict, List
@@ -306,16 +307,41 @@ def _six() -> List[str]:
 
 
 @pytest.mark.parametrize(
-    "make",
-    [lambda: tuple(_six()), lambda: deque(_six()), lambda: (u for u in _six())],
+    ("make", "got"),
+    [
+        (lambda: tuple(_six()), "Got 6 URLs"),
+        (lambda: deque(_six()), "Got 6 URLs"),
+        (lambda: (u for u in _six()), "Got more than 5 URLs"),
+    ],
     ids=["tuple", "deque", "generator"],
 )
-def test_cap_applies_to_non_list_iterables(octen_cls: MagicMock, make: Any) -> None:
+def test_cap_applies_to_non_list_iterables(octen_cls: MagicMock, make: Any, got: str) -> None:
     # The SDK's List[str] accepts these too, so the cap must see them.
     result = _spec().extract(make())
     assert set(result) == {"error"}
-    assert "Got 6 URLs" in result["error"] and "at most 5" in result["error"]
+    assert got in result["error"] and "at most 5" in result["error"]
     octen_cls.assert_not_called()
+
+
+def test_unbounded_generator_hits_cap_without_call(octen_cls: MagicMock) -> None:
+    taken: List[int] = []
+
+    def endless() -> Any:
+        for i in itertools.count():
+            taken.append(i)
+            yield f"https://example.com/{i}"
+
+    result = _spec(extract_options={"max_urls": 3}).extract(endless())
+    assert set(result) == {"error"}
+    assert "Got more than 3 URLs" in result["error"]
+    assert len(taken) == 4  # reads at most max_urls + 1 entries
+    octen_cls.assert_not_called()
+
+
+def test_generator_at_cap_is_sent(octen_cls: MagicMock) -> None:
+    urls = [f"https://example.com/{i}" for i in range(5)]
+    assert "error" not in _spec().extract(u for u in urls)
+    assert _sdk(octen_cls).call_args.kwargs["urls"] == urls
 
 
 @pytest.mark.parametrize(

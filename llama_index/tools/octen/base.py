@@ -2,6 +2,7 @@
 
 import copy
 import datetime
+import itertools
 import logging
 import math
 import os
@@ -1125,17 +1126,22 @@ class OctenToolSpec(BaseToolSpec):
         """
         from octen import ExtractRequest
 
+        max_urls = self._extract_max_urls()
+        # Read at most max_urls + 1 entries from an unsized iterable, so an endless one ends.
+        unsized = not hasattr(urls, "__len__") and hasattr(urls, "__iter__")
+        if unsized:
+            urls = list(itertools.islice(urls, max_urls + 1))
         # Normalize once (a tuple or generator becomes a list), then cap and send that list.
         try:
             urls = _ExtractArgs(urls=urls, query=query).urls
         except ValidationError as exc:
             return {"error": f"Invalid arguments: {_describe(exc)}"}
-        max_urls = self._extract_max_urls()
         if not urls:
             return {"error": f"urls is empty: pass 1 to at most {max_urls} page URLs."}
         if len(urls) > max_urls:
+            got = f"more than {max_urls}" if unsized else str(len(urls))
             return {
-                "error": f"Got {len(urls)} URLs, but this tool reads at most {max_urls} "
+                "error": f"Got {got} URLs, but this tool reads at most {max_urls} "
                 "URLs per call. Nothing was fetched. Split the URLs into several calls "
                 f"of at most {max_urls} each, or keep only the ones you need."
             }
