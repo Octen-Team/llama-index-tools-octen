@@ -864,6 +864,15 @@ ARABIC_LABEL = "\u0627\u062e\u062a\u0628\u0627\u0631" + "1"
 ARABIC_PUNYCODE = "xn--1-ymcadjxy"
 
 
+def test_userinfo_allows_rfc3986_userinfo_characters(octen_cls: MagicMock) -> None:
+    for url in ("https://user:pass'word@example.com/image.png",
+                "https://u-._~!$&'()*+,;=:%41@example.com/image.png"):
+        assert "error" not in _spec().image_search(image_url=url), url
+    for url in ("https://us<er@example.com/a.png", "https://us%zzer@example.com/a.png",
+                'https://us"er@example.com/a.png', "https://us[er@example.com/a.png"):
+        assert "http(s)" in _spec().image_search(image_url=url)["error"], url
+
+
 def test_host_validation_does_not_reject_valid_hosts(octen_cls: MagicMock) -> None:
     for host in (f"{ARABIC_LABEL}.example", f"{ARABIC_PUNYCODE}.example",
                  "cafe\u0301.example", "ex{a}mple.com", "a|b^c.example", "a_b~c.example"):
@@ -909,6 +918,9 @@ def test_sanitized_error_drops_notes_and_other_attributes(octen_cls: MagicMock) 
         ("2025-06-01T00:00:00Z", "2025-01-01T00:00:00Z"),
         ("2025-01-01T08:00:00+08:00", "2024-12-31T23:59:59Z"),
         ("2025-01-01T00:00:00.5Z", "2025-01-01T00:00:00.4Z"),
+        # Differs below a microsecond.
+        ("2025-01-01T00:00:00.0000002Z", "2025-01-01T00:00:00.0000001Z"),
+        ("2025-01-01T08:00:00.1234567891+08:00", "2025-01-01T00:00:00.123456789Z"),
     ],
 )
 def test_design_reversed_time_range_rejected(start: str, end: str) -> None:
@@ -922,6 +934,9 @@ def test_design_reversed_time_range_rejected(start: str, end: str) -> None:
         ("2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z"),
         ("2025-01-01T08:00:00+08:00", "2025-01-01T00:00:00Z"),
         ("2025-01-01T00:00:00Z", "2025-06-30T23:59:59+08:00"),
+        ("2025-01-01T00:00:00.1Z", "2025-01-01T00:00:00.100000000Z"),
+        ("2025-01-01T00:00:00.0000001Z", "2025-01-01T00:00:00.0000002Z"),
+        ("2025-01-01T08:00:00.123456789+08:00", "2025-01-01T00:00:00.1234567891Z"),
     ],
 )
 def test_design_ordered_time_range_accepted(start: str, end: str) -> None:

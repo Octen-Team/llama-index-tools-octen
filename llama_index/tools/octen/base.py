@@ -2,6 +2,7 @@
 
 import copy
 import datetime
+import decimal
 import ipaddress
 import itertools
 import logging
@@ -334,8 +335,10 @@ def _blank(value: Optional[str]) -> bool:
 # RFC 3986 authority: [userinfo "@"] host [":" port]. Non-ASCII is allowed in names
 # for internationalized hosts; an IP literal is checked with ipaddress.
 _NAME = r"(?:[^\s\x00-\x1f\x7f\\<>\"'`@\[\]:/?#%]|%[0-9A-Fa-f]{2})"
+# RFC 3986 userinfo: unreserved, sub-delims (incl. "'"), ":" and %-escapes; non-ASCII too.
+_USERINFO = r"(?:[A-Za-z0-9\-._~!$&'()*+,;=:\u0080-\U0010FFFF]|%[0-9A-Fa-f]{2})*"
 _AUTHORITY = re.compile(
-    rf"(?:(?:{_NAME}|:)*@)?(?:{_NAME}+|\[(?P<ip>[0-9A-Fa-f:.]+)\])(?::[0-9]*)?"
+    rf"(?:{_USERINFO}@)?(?:{_NAME}+|\[(?P<ip>[0-9A-Fa-f:.]+)\])(?::[0-9]*)?"
 )
 _BAD_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
@@ -756,23 +759,26 @@ def _check_design_options(options: Dict[str, Any]) -> None:
         )
 
 
-def _instant(value: str) -> datetime.datetime:
-    """An RFC 3339 time already checked by _is_rfc3339, as an aware datetime."""
+def _instant(value: str) -> Tuple[datetime.datetime, decimal.Decimal]:
+    """An RFC 3339 time already checked by _is_rfc3339, as (UTC whole second, fraction).
+
+    The fraction is kept in full, since datetime keeps only microseconds.
+    """
     match = _RFC3339.fullmatch(value)
     if match is None:
         raise ValueError(f"not an RFC 3339 time: {value!r}")
     year, month, day, hour, minute, second, off_hour, off_minute = match.groups()
     fraction = re.search(r"\.(\d+)", value[19:])
-    micro = int((fraction.group(1) + "000000")[:6]) if fraction else 0
     if off_hour is None:
         offset = datetime.timedelta(0)
     else:
         sign = -1 if value[-6] == "-" else 1
         offset = sign * datetime.timedelta(hours=int(off_hour), minutes=int(off_minute))
-    return datetime.datetime(
-        int(year), int(month), int(day), int(hour), int(minute), int(second), micro,
+    whole = datetime.datetime(
+        int(year), int(month), int(day), int(hour), int(minute), int(second),
         tzinfo=datetime.timezone(offset),
-    )
+    ).astimezone(datetime.timezone.utc)
+    return whole, decimal.Decimal("0." + fraction.group(1)) if fraction else decimal.Decimal(0)
 
 
 def _as_dict(value: Any) -> Dict[str, Any]:
