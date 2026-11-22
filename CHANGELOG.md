@@ -68,8 +68,17 @@ has both new endpoints. One thing changes:
     them off with `images={"design_facts": False, "snippet": {"enable": False}}`
     or shorten snippets with `snippet.max_tokens`.
 - Both return `{"data", "request_id", "warning"?}`, with `data` as the API
-  returns it, and split errors as the other functions do. Numbers and booleans in both options dicts are checked
-  strictly: `True` or `5.0` is not accepted as a count.
+  returns it, and split errors as the other functions do. Numbers and booleans
+  in both options dicts are checked strictly: `True` or `5.0` is not accepted
+  as a count.
+
+### Fixed
+
+- `broad_search`, `news_search`, `business_search` and `search_premier` no
+  longer drop `include_domains`, `exclude_domains` or `language` when it is
+  passed as a one-shot iterable such as a generator. Validation used to consume
+  the iterable, so an empty one was sent and the filter was silently not
+  applied. Lists are sent as before.
 
 ## 0.3.0
 
