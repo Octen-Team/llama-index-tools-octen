@@ -155,9 +155,9 @@ for item in result["data"]["results"]:
 | `url_timeout` | the API's per-URL fetch timeout in seconds, 1-60; sent as `timeout` | not sent; the API uses 30 |
 | `include_images`, `include_videos`, `include_audio` | `True` to return media URLs found on each page | not sent |
 | `include_links` | `{"scope": "prefer_internal" \| "prefer_external", "max_links": 1-1000}`; `{}` uses the API defaults | not sent |
-| `timeout` | client timeout for the whole call, in seconds | spec-level `timeout`, else `url_timeout` (or 30) + 90 |
+| `timeout` | HTTP request timeout passed to the SDK, in seconds, per attempt | spec-level `timeout`, else `url_timeout` (or 30) + 90 |
 
-- As in the other options dicts, `timeout` is the client timeout and overrides the spec-level `timeout`. The API's per-URL budget is `url_timeout`. When neither `timeout` is set, the client waits `url_timeout` (or the API default of 30) plus 90 seconds, since a batch, and `mode="advanced"` or `"auto"`, can take longer than one URL's budget.
+- As in the other options dicts, `timeout` is the HTTP request timeout passed to the SDK and overrides the spec-level `timeout`. The API's per-URL budget is `url_timeout`. When neither `timeout` is set, each request waits up to `url_timeout` (or the API default of 30) plus 90 seconds, since a batch, and `mode="advanced"` or `"auto"`, can take longer than one URL's budget. It is not a deadline for the whole call: the SDK still retries 408, 429, 500, 502, 503 and 504 responses (see [Retries](#retries)), so a call can take longer across attempts.
 - A call with more URLs than `max_urls`, or with none, sends no request: the model gets `{"error": ...}` with the limit and is told to split the URLs into several calls. URLs longer than 2048 characters, empty URLs and a `query` over 500 characters are also returned to the model before any request.
 - `data` keeps every URL in input order. A URL that could not be read has `status: "failed"` and an `error_message`, and is not billed; the others still return content. Content is not truncated. Each successful item has `resolved_mode`, the mode it was billed at; with `verbose=True` the request's usage counts (`successful_by_mode`) are printed.
 - Errors are split as described for the vertical functions below.

@@ -563,8 +563,8 @@ class OctenToolSpec(BaseToolSpec):
                 max_age_seconds, url_timeout (the API's per-URL budget, 1-60),
                 include_images, include_videos, include_audio, include_links,
                 max_urls (URLs the model may send per call, 1-20, default 5)
-                and timeout (the client timeout; defaults to the spec-level
-                timeout, else (url_timeout or 30) + 90 seconds).
+                and timeout (the HTTP request timeout per attempt; defaults to
+                the spec-level timeout, else (url_timeout or 30) + 90 seconds).
 
         Raises:
             ValueError: if no API key is available, or an options dict holds

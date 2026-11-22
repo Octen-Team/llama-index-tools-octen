@@ -35,9 +35,11 @@ shapes and errors. Things that do change:
     `include_audio`, `include_links`, `timeout` and `max_urls` come from the
     new keyword-only constructor argument `extract_options`, checked when the
     spec is built.
-  - `timeout` is the client timeout, as in the other options dicts. Left
-    unset, it is the spec-level `timeout`, else `url_timeout` (or 30) plus 90
-    seconds.
+  - `timeout` is the HTTP request timeout passed to the SDK, as in the other
+    options dicts. Left unset, it is the spec-level `timeout`, else
+    `url_timeout` (or 30) plus 90 seconds. It applies per attempt: the SDK
+    still retries 408, 429, 500, 502, 503 and 504 responses, so a call can
+    take longer.
   - `max_urls` (1-20, default 5) caps the URLs per call. A call with more, or
     with none, sends no request and tells the model the limit.
   - Every URL comes back in `data`, including failed ones with their
