@@ -424,8 +424,12 @@ def test_live_extract_bad_option_raises_at_construction() -> None:
         _spec(extract_options={"max_urls": 21})
 
 
-# A stable public photo (Wikimedia Commons), used as the reference image.
-CAT_IMAGE = "https://upload.wikimedia.org/wikipedia/commons/3/3a/Cat03.jpg"
+# A stable public photo of the Eiffel Tower (Wikimedia Commons), as in octen-js's live tests.
+EIFFEL_IMAGE = (
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/8/85/"
+    "Tour_Eiffel_Wikimedia_Commons_%28cropped%29.jpg/"
+    "500px-Tour_Eiffel_Wikimedia_Commons_%28cropped%29.jpg"
+)
 IMAGE_QUERY = "golden retriever puppy"
 
 
@@ -474,11 +478,15 @@ def test_live_image_search_by_url_and_safesearch(mocker: Any) -> None:
 
     spy = mocker.spy(HTTPClient, "request")
     spec = _spec(image_search_options={"count": 3, "safesearch": "off"})
-    items = _check_images("image by url", spec.image_search(image_url=CAT_IMAGE))
+    items = _check_images("image by url", spec.image_search(image_url=EIFFEL_IMAGE))
     assert 0 < len(items) <= 3, items
+    # Results about the pictured subject show the image was used, not ignored.
+    print(f"titles={[i.get('title') for i in items]}")
+    texts = [f"{i.get('title') or ''} {i.get('description') or ''}" for i in items]
+    assert any(re.search(r"eiffel", t, re.I) for t in texts), texts
     body = spy.call_args.kwargs["json"]
     print(f"wire body={body}")
-    assert body["inputs"] == [{"type": "image", "url": CAT_IMAGE}]
+    assert body["inputs"] == [{"type": "image", "url": EIFFEL_IMAGE}]
     assert body["safesearch"] == "off"
 
 
@@ -486,7 +494,7 @@ def test_live_image_search_violations_send_nothing(mocker: Any) -> None:
     from octen.resources.image_search import ImageSearchResource
 
     spy = mocker.spy(ImageSearchResource, "search")
-    both = _spec().image_search("cats", image_url=CAT_IMAGE)
+    both = _spec().image_search("cats", image_url=EIFFEL_IMAGE)
     neither = _spec().image_search()
     assert "not both" in both["error"] and "Got neither" in neither["error"]
     tools = {t.metadata.name: t for t in _spec().to_tool_list()}
@@ -512,38 +520,54 @@ def _check_design(name: str, result: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def _base_url(image: Dict[str, Any]) -> str:
+    # Image URLs carry a signed query string that may differ between calls.
+    return str(image.get("url", "")).split("?")[0]
+
+
 def test_live_design_search_options_and_group_follow_up() -> None:
-    control = _check_design("design control", _spec().design_search(DESIGN_QUERY))
-    assert len(control["images"]) > 2 and len(control["results"]) > 1, control
+    # Same query and image count; the control turns design facts and snippets on
+    # and leaves the web results uncapped, with the same (no) domain filter.
+    on = {"images": {"count": 3, "design_facts": True, "snippet": {"enable": True}}}
+    control = _check_design(
+        "design control", _spec(design_search_options=on).design_search(DESIGN_QUERY)
+    )
+    print(f"control snippet={[bool(i.get('snippet')) for i in control['images']]} "
+          f"design_facts={[bool(i.get('design_facts')) for i in control['images']]}")
+    assert len(control["images"]) == 3, control
+    assert any(i.get("snippet") for i in control["images"]), control["images"]
     assert any(i.get("design_facts") for i in control["images"]), control["images"]
+    assert len(control["results"]) > 1, control
     assert not any(r.get("full_content") for r in control["results"]), control["results"]
 
-    options = {
-        "images": {"count": 2, "design_facts": False, "snippet": {"enable": False}},
+    off = {
+        "images": {"count": 3, "design_facts": False, "snippet": {"enable": False}},
         "web_search": {"count": 1, "full_content": {"enable": True, "max_tokens": 200}},
     }
     capped = _check_design(
-        "design options", _spec(design_search_options=options).design_search(DESIGN_QUERY)
+        "design options", _spec(design_search_options=off).design_search(DESIGN_QUERY)
     )
-    assert 0 < len(capped["images"]) <= 2, capped
+    print(f"same images={[_base_url(i) for i in capped['images']] == [_base_url(i) for i in control['images']]}")
+    assert [_base_url(i) for i in capped["images"]] == [_base_url(i) for i in control["images"]]
     assert not any(i.get("design_facts") or i.get("snippet") for i in capped["images"]), capped
-    assert len(capped["results"]) == 1 and capped["results"][0].get("full_content"), capped
+    assert len(capped["results"]) == 1 < len(control["results"]), capped
+    assert capped["results"][0].get("full_content"), capped
 
-    grouped = [i for i in control["images"] if (i.get("group") or {}).get("group_id")]
-    assert grouped, "no grouped image in the control: pick a DESIGN_QUERY that returns one"
-    group = grouped[0]["group"]
+    grouped = [i for i in control["images"] if (i.get("group") or {}).get("total", 0) >= 3]
+    assert grouped, "no image from a group of 3 or more: pick another DESIGN_QUERY"
+    seed = grouped[0]
+    group_id, position, total = (seed["group"][k] for k in ("group_id", "position", "total"))
     follow = _check_design(
         "design group_id",
-        _spec(design_search_options={"images": {"count": 100}}).design_search(
-            group_id=group["group_id"]
-        ),
+        _spec(design_search_options={"images": {"count": 100}}).design_search(group_id=group_id),
     )
     members = follow["images"]
-    print(f"group total={group.get('total')} positions={[i['group'].get('position') for i in members]}")
-    assert members and all(i["group"]["group_id"] == group["group_id"] for i in members)
+    ids = [i["group"]["group_id"] for i in members]
     positions = [i["group"]["position"] for i in members]
-    assert positions == sorted(positions), positions
-    assert len(members) == group["total"], (len(members), group)
+    print(f"group total={total} seed position={position} positions={positions}")
+    assert ids == [group_id] * total, ids
+    assert positions == list(range(1, total + 1)), positions
+    assert _base_url(members[position - 1]) == _base_url(seed), (members[position - 1], seed)
 
 
 def test_live_design_search_web_toggle_and_domains() -> None:
