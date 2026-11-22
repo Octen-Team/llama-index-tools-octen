@@ -233,8 +233,9 @@ def test_live_search_premier_each_time_bound() -> None:
     _check("search_premier unbounded", control)
     print(f"unbounded time_published={_published(control)}")
     control_dated = [t for t in _published(control) if t]
-    assert any(t < start for t in control_dated), control
-    assert any(t > end for t in control_dated), control
+    stale = "the live index changed: pick a new TIME_QUERY / BOUND_WINDOW with results on both sides"
+    assert any(t < start for t in control_dated), f"no result before start; {stale}: {control_dated}"
+    assert any(t > end for t in control_dated), f"no result after end; {stale}: {control_dated}"
 
     # Start-only first: dropping start_time then fails on the second call.
     after = _premier(count=10, start_time=BOUND_WINDOW[0])
@@ -264,6 +265,8 @@ def test_live_search_premier_bad_option_raises_at_construction() -> None:
 
 
 EXTRACT_DOC = "https://docs.octen.ai/api-reference/extract"
+# No other test fetches it, so its cached copy is usually older than 300 s.
+MAX_AGE_URL = "https://en.wikipedia.org/wiki/Web_crawler"
 # The .invalid TLD never resolves (RFC 2606); failed URLs are not billed.
 FAILING_URL = "https://nonexistent.invalid/"
 
@@ -362,14 +365,24 @@ def test_live_extract_include_images_with_control() -> None:
     assert images and all(isinstance(i, dict) and i.get("url") for i in images), flagged
     control = _items("extract images control", _spec().extract(url))[0]
     assert control["status"] == "success" and not control.get("images"), control
+    assert not control.get("cover_image"), control
+    # No include_links either, so links stay off: they are opt-in.
+    assert not control.get("links"), control
 
 
 def test_live_extract_max_age_seconds_with_control() -> None:
-    # time_last_crawled is when Octen last crawled the URL; the default cache window
-    # is 86400 s, so the control may return an older crawl.
-    url = [EXTRACT_DOC]
+    # time_last_crawled is when Octen last crawled the URL. The default-cache control
+    # runs first; only a stale cached copy makes the max_age_seconds check conclusive.
+    url = [MAX_AGE_URL]
+    margin = 60  # clock skew between this machine and the server
     control = _items("extract cache control", _spec().extract(url))[0]
-    print(f"control time_last_crawled={control.get('time_last_crawled')}")
+    cached = _ts(control.get("time_last_crawled"))
+    assert cached is not None, control
+    age = (datetime.now(timezone.utc) - cached).total_seconds()
+    print(f"control time_last_crawled={cached} age={age:.0f}s")
+    if age <= 300 + margin:
+        pytest.skip(f"inconclusive: cached copy is only {age:.0f}s old, not older than 300 s")
+
     sent = datetime.now(timezone.utc)
     fresh = _items(
         "extract max_age 300", _spec(extract_options={"max_age_seconds": 300}).extract(url)
@@ -377,10 +390,10 @@ def test_live_extract_max_age_seconds_with_control() -> None:
     received = datetime.now(timezone.utc)
     crawled = _ts(fresh.get("time_last_crawled"))
     print(f"max_age time_last_crawled={crawled} sent={sent} received={received}")
-    # 60 s margin for clock skew between this machine and the server.
     assert crawled is not None, fresh
-    assert (sent - crawled).total_seconds() <= 300 + 60, (crawled, sent)
-    assert (crawled - received).total_seconds() <= 60, (crawled, received)
+    assert (sent - crawled).total_seconds() <= 300 + margin, (crawled, sent)
+    assert (crawled - received).total_seconds() <= margin, (crawled, received)
+    assert crawled > cached, (crawled, cached)
 
 
 def test_live_extract_cap_rejects_without_request(mocker: Any) -> None:
