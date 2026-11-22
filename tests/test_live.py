@@ -2,8 +2,8 @@
 
 Skipped unless OCTEN_LIVE=1 and OCTEN_API_KEY are set. Each test makes at
 most one billed request with the smallest result count the endpoint allows,
-except the search_premier tests, which make two (a filtered call and a
-same-query control) with a small count.
+except the search_premier and extract tests, which make two (an option under
+test and a same-input control) with a small count or one to three URLs.
 """
 
 import os
@@ -252,3 +252,101 @@ def test_live_search_premier_model_cannot_pass_count() -> None:
 def test_live_search_premier_bad_option_raises_at_construction() -> None:
     with pytest.raises(ValueError, match="search_premier_options.*result_type"):
         _spec(search_premier_options={"result_type": "smart"})
+
+
+EXTRACT_DOC = "https://docs.octen.ai/api-reference/extract"
+# The .invalid TLD never resolves (RFC 2606); failed URLs are not billed.
+FAILING_URL = "https://nonexistent.invalid/"
+
+
+def _items(name: str, result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    _check(name, result)
+    items = result["data"]["results"]
+    print(f"{name}: " + ", ".join(f"{i.get('url')}={i.get('status')}" for i in items))
+    return items
+
+
+def test_live_extract_content_and_per_url_failure() -> None:
+    urls = ["https://example.com", EXTRACT_DOC, FAILING_URL]
+    items = _items("extract mixed", _spec().extract(urls))
+    assert [i["url"] for i in items] == urls, items
+    example, doc, failed = items
+    assert example["status"] == doc["status"] == "success"
+    assert "documentation examples" in example["full_content"]
+    assert "Failed URLs are not billed" in doc["full_content"]
+    assert failed["status"] == "failed" and failed.get("error_message"), failed
+    assert not failed.get("full_content")
+    print(f"failed error_message={failed['error_message']!r}")
+
+
+def test_live_extract_query_highlights_with_control() -> None:
+    control = _items("extract control", _spec().extract([EXTRACT_DOC]))[0]
+    focused = _items(
+        "extract query",
+        _spec().extract([EXTRACT_DOC], query="maximum number of URLs per request"),
+    )[0]
+    assert control["status"] == focused["status"] == "success"
+    assert control.get("full_content") and not control.get("highlights"), control
+    assert focused.get("highlights") and not focused.get("full_content"), focused
+    print(f"highlights={len(focused['highlights'])} first={focused['highlights'][0][:80]!r}")
+
+
+def test_live_extract_format_and_links_with_control() -> None:
+    options = {"format": "text", "include_links": {"max_links": 5}}
+    control = _items("extract control", _spec().extract([EXTRACT_DOC]))[0]
+    result = _items(
+        "extract text+links", _spec(extract_options=options).extract([EXTRACT_DOC])
+    )[0]
+    heading = re.compile(r"^#{1,6} ", re.M)
+    assert heading.search(control["full_content"]), control["full_content"][:300]
+    assert not heading.search(result["full_content"]), result["full_content"][:300]
+    assert not control.get("links"), control.get("links")
+    assert result.get("links") and len(result["links"]) <= 5, result.get("links")
+
+
+def test_live_extract_mode_advanced_with_control(monkeypatch: Any) -> None:
+    from octen.resources.extract import ExtractResource
+
+    responses: List[Any] = []
+    original = ExtractResource.extract
+
+    def record(self: ExtractResource, *args: Any, **kwargs: Any) -> Any:
+        responses.append(original(self, *args, **kwargs))
+        return responses[-1]
+
+    monkeypatch.setattr(ExtractResource, "extract", record)
+    url = ["https://example.com"]
+    control = _items("extract standard", _spec().extract(url))[0]
+    options = {"mode": "advanced", "timeout": 60, "request_timeout": 120}
+    advanced = _items("extract advanced", _spec(extract_options=options).extract(url))[0]
+    by_mode = [r.successful_by_mode for r in responses]
+    print(f"resolved_mode={control.get('resolved_mode')},{advanced.get('resolved_mode')} "
+          f"successful_by_mode={by_mode}")
+    assert control["resolved_mode"] == "standard"
+    assert advanced["resolved_mode"] == "advanced"
+    assert by_mode == [
+        {"standard_urls": 1, "advanced_urls": 0},
+        {"standard_urls": 0, "advanced_urls": 1},
+    ]
+
+
+def test_live_extract_cap_rejects_without_request(mocker: Any) -> None:
+    from octen.resources.extract import ExtractResource
+
+    spy = mocker.spy(ExtractResource, "extract")
+    spec = _spec(extract_options={"max_urls": 2})
+    result = spec.extract([EXTRACT_DOC, "https://example.com", "https://octen.ai"])
+    assert set(result) == {"error"}
+    assert "at most 2" in result["error"]
+    spy.assert_not_called()
+
+
+def test_live_extract_model_cannot_pass_mode() -> None:
+    tools = {t.metadata.name: t for t in _spec().to_tool_list()}
+    with pytest.raises(TypeError, match="mode"):
+        tools["extract"].call(urls=["https://example.com"], mode="advanced")
+
+
+def test_live_extract_bad_option_raises_at_construction() -> None:
+    with pytest.raises(ValueError, match="extract_options.*max_urls"):
+        _spec(extract_options={"max_urls": 21})
