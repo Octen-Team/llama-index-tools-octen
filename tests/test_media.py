@@ -375,6 +375,11 @@ def test_design_wire_body() -> None:
         ({"image_url": "https://example.com/a\x7f.png"}, "http(s)"),
         ({"image_url": "https://example.com/a.png\x1f"}, "http(s)"),
         ({"image_url": "https:///example.com/a.png"}, "http(s)"),
+        ({"image_url": "https://\\example.com/a.png"}, "http(s)"),
+        ({"image_url": "https://exa\\mple.com/a.png"}, "http(s)"),
+        ({"image_url": "https://example.com\\a.png"}, "http(s)"),
+        ({"image_url": "https://ex<am>ple.com/a.png"}, "http(s)"),
+        ({"image_url": 'https://exa"mple.com/a.png'}, "http(s)"),
         ({"query": "x" * 501}, "query"),
         ({"query": "q", "include_domains": ["a.com"] * 11}, "include_domains"),
         ({"query": "q", "exclude_domains": ["a.com"] * 11}, "exclude_domains"),
@@ -829,6 +834,74 @@ def test_image_url_errors_never_carry_upstream_text(
     assert "Image Search" in error
 
 
+def test_image_url_accepts_authority_forms(octen_cls: MagicMock) -> None:
+    for url in ("https://user:pw@example.com:8443/a.png", "https://[2001:db8::1]/a.png",
+                "https://xn--bcher-kva.example/a.png", "https://b\u00fccher.example/a.png",
+                "https://example.com/a%20b.png?x=1#f"):
+        assert "error" not in _spec().image_search(image_url=url), url
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        OctenAuthenticationError("bad key for https://cdn.example.com/a.jpg?sig=SECRET-TOKEN",
+                                 request_id="rid-401",
+                                 response_data={"msg": "SECRET-TOKEN"}),
+        OctenAPIError("forbidden: https://cdn.example.com/a.jpg?sig=SECRET-TOKEN",
+                      status_code=403, request_id="rid-403",
+                      response_data={"msg": "SECRET-TOKEN"}),
+        OctenAPIError("not found SECRET-TOKEN", status_code=404),
+        OctenValidationError("image search request failed validation SECRET-TOKEN",
+                             errors=[{"input": SIGNED_URL}]),
+    ],
+)
+def test_image_url_raised_errors_are_sanitized(
+    octen_cls: MagicMock, caplog: Any, exc: Exception
+) -> None:
+    _sdk(octen_cls, "image_search").side_effect = exc
+    with caplog.at_level(logging.DEBUG, logger="llama_index.tools.octen"):
+        with pytest.raises(type(exc)) as raised:
+            _spec().image_search(image_url=SIGNED_URL)
+    error = raised.value
+    assert type(error) is type(exc)
+    assert getattr(error, "status_code", None) == getattr(exc, "status_code", None)
+    assert getattr(error, "request_id", None) == getattr(exc, "request_id", None)
+    assert getattr(error, "response_data", None) is None
+    assert error.__cause__ is None and error.__suppress_context__
+    rendered = [str(error), repr(error), str(error.args), caplog.text,
+                str(getattr(error, "errors", ""))]
+    for text in rendered:
+        assert "SECRET" not in text and "cdn.example.com" not in text, text
+    assert "image URL" in str(error)
+
+
+def test_text_query_raised_errors_unchanged(octen_cls: MagicMock) -> None:
+    exc = OctenAPIError("forbidden for query", status_code=403)
+    _sdk(octen_cls, "image_search").side_effect = exc
+    with pytest.raises(OctenAPIError) as raised:
+        _spec().image_search("cats")
+    assert raised.value is exc
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        OctenTimeoutError(timeout=30, request_sent=True),
+        OctenConnectionError(request_sent=None),
+        OctenAPIError("bad gateway", status_code=502),
+        OctenAPIError("malformed successful response", status_code=200),
+    ],
+)
+def test_billing_warning_never_comes_with_a_retry_hint(
+    octen_cls: MagicMock, exc: Exception
+) -> None:
+    _sdk(octen_cls, "image_search").side_effect = exc
+    for kwargs in ({"image_url": IMAGE_URL}, {"query": "cats"}):
+        error = _spec().image_search(**kwargs)["error"]
+        assert "may already have reached the server and been billed" in error
+        assert "try again" not in error.lower() and "try another" not in error.lower(), error
+
+
 def test_image_url_errors_keep_billing_warning_and_status(octen_cls: MagicMock) -> None:
     _sdk(octen_cls, "image_search").side_effect = OctenTimeoutError(timeout=30, request_sent=True)
     assert "may already have reached the server and been billed" in _spec().image_search(
@@ -838,6 +911,7 @@ def test_image_url_errors_keep_billing_warning_and_status(octen_cls: MagicMock) 
     error = _spec().image_search(image_url=IMAGE_URL)["error"]
     assert "HTTP 503" in error and "rid-503" in error
     assert "may already have" not in error
+    assert "Try again later" in error
 
 
 def test_text_query_errors_keep_upstream_text(octen_cls: MagicMock) -> None:

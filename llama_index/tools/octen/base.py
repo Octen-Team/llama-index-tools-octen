@@ -330,6 +330,10 @@ def _blank(value: Optional[str]) -> bool:
     return value is None or not value.strip()
 
 
+# RFC 3986 authority characters; non-ASCII is allowed for internationalized host names.
+_AUTHORITY = re.compile(r"[A-Za-z0-9\-._~%!$&'()*+,;=:@\[\]\u0080-\U0010FFFF]+")
+
+
 def _is_http_url(value: str) -> bool:
     # urlparse silently drops tabs, newlines and leading control characters, so they
     # are checked first.
@@ -338,7 +342,11 @@ def _is_http_url(value: str) -> bool:
     try:
         parsed = urlparse(value)
         parsed.port  # raises on a non-numeric or out-of-range port
-        return parsed.scheme.lower() in ("http", "https") and bool(parsed.hostname)
+        return (
+            parsed.scheme.lower() in ("http", "https")
+            and bool(parsed.hostname)
+            and _AUTHORITY.fullmatch(parsed.netloc) is not None
+        )
     except ValueError:  # e.g. "Invalid IPv6 URL" for an unclosed bracket
         return False
 
@@ -358,14 +366,39 @@ def _image_url_error(exc: Exception, rejected: bool, message: Optional[str]) -> 
         what += f", request_id {request_id}"
     if rejected:
         return f"Image Search rejected the image ({what}). {_IMAGE_REJECTED}"
-    text = (
-        f"Image Search by image URL failed ({what}). The upstream message is left out "
-        "because it may contain the image URL. Try again later, try another image URL, "
-        "or search by text."
-    )
+    text = f"{_image_url_failure(what)}."
     if message is not None and message.endswith(_MAY_HAVE_BEEN_SENT):
-        text += f" {_MAY_HAVE_BEEN_SENT}"
-    return text
+        # No retry hint next to a do-not-retry warning.
+        return f"{text} {_MAY_HAVE_BEEN_SENT}"
+    return f"{text} Try again later, try another image URL, or search by text."
+
+
+def _image_url_failure(what: str) -> str:
+    return (
+        f"Image Search by image URL failed ({what}). The upstream message is left out "
+        "because it may contain the image URL"
+    )
+
+
+def _sanitized(exc: Exception) -> Exception:
+    """The same exception class, status and request id, without upstream text or body."""
+    from octen import OctenError
+
+    status = getattr(exc, "status_code", None)
+    request_id = getattr(exc, "request_id", None)
+    what = type(exc).__name__ + (f", HTTP {status}" if status else "")
+    if request_id:
+        what += f", request_id {request_id}"
+    message = _image_url_failure(what)
+    try:
+        clean = copy.copy(exc)
+    except Exception:
+        return OctenError(message)
+    clean.args = (message,)
+    for name, value in (("message", message), ("response_data", None), ("errors", [])):
+        if hasattr(clean, name):
+            setattr(clean, name, value)
+    return clean
 
 
 # Image Search's 413 / 415 come from the image the model chose, so the model can retry.
@@ -1548,6 +1581,10 @@ class OctenToolSpec(BaseToolSpec):
                     message = _image_url_error(exc, rejected, message)
                 elif rejected:
                     message = f"{exc}. {_IMAGE_REJECTED}"
+            if message is None and endpoint == "image_search" and "image_url" in kwargs:
+                clean = _sanitized(exc)
+                logger.error("%s raised %s: %s", endpoint, type(clean).__name__, clean)
+                raise clean from None
             if message is None:
                 # Agent workflows turn any tool exception into text for the
                 # model, so log it where the developer will see it.
