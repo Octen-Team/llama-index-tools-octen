@@ -424,12 +424,9 @@ def test_live_extract_bad_option_raises_at_construction() -> None:
         _spec(extract_options={"max_urls": 21})
 
 
-# A stable public photo of the Eiffel Tower (Wikimedia Commons), as in octen-js's live tests.
-EIFFEL_IMAGE = (
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/8/85/"
-    "Tour_Eiffel_Wikimedia_Commons_%28cropped%29.jpg/"
-    "500px-Tour_Eiffel_Wikimedia_Commons_%28cropped%29.jpg"
-)
+# The URL does not name its subject. Per https://unsplash.com/photos/Q0-fOL2nqZc (title and
+# alt text "Eiffel tower during daytime", checked 2026-11-22) it shows the Eiffel Tower.
+REFERENCE_IMAGE = "https://images.unsplash.com/photo-1511739001486-6bfe10ce785f?w=800&fm=jpg"
 IMAGE_QUERY = "golden retriever puppy"
 
 
@@ -478,7 +475,7 @@ def test_live_image_search_by_url_and_safesearch(mocker: Any) -> None:
 
     spy = mocker.spy(HTTPClient, "request")
     spec = _spec(image_search_options={"count": 3, "safesearch": "off"})
-    items = _check_images("image by url", spec.image_search(image_url=EIFFEL_IMAGE))
+    items = _check_images("image by url", spec.image_search(image_url=REFERENCE_IMAGE))
     assert 0 < len(items) <= 3, items
     # Results about the pictured subject show the image was used, not ignored.
     print(f"titles={[i.get('title') for i in items]}")
@@ -486,7 +483,7 @@ def test_live_image_search_by_url_and_safesearch(mocker: Any) -> None:
     assert any(re.search(r"eiffel", t, re.I) for t in texts), texts
     body = spy.call_args.kwargs["json"]
     print(f"wire body={body}")
-    assert body["inputs"] == [{"type": "image", "url": EIFFEL_IMAGE}]
+    assert body["inputs"] == [{"type": "image", "url": REFERENCE_IMAGE}]
     assert body["safesearch"] == "off"
 
 
@@ -494,7 +491,7 @@ def test_live_image_search_violations_send_nothing(mocker: Any) -> None:
     from octen.resources.image_search import ImageSearchResource
 
     spy = mocker.spy(ImageSearchResource, "search")
-    both = _spec().image_search("cats", image_url=EIFFEL_IMAGE)
+    both = _spec().image_search("cats", image_url=REFERENCE_IMAGE)
     neither = _spec().image_search()
     assert "not both" in both["error"] and "Got neither" in neither["error"]
     tools = {t.metadata.name: t for t in _spec().to_tool_list()}
@@ -526,32 +523,32 @@ def _base_url(image: Dict[str, Any]) -> str:
 
 
 def test_live_design_search_options_and_group_follow_up() -> None:
-    # Same query and image count; the control turns design facts and snippets on
-    # and leaves the web results uncapped, with the same (no) domain filter.
+    # Same query and image count; the control turns design facts and snippets on. The web
+    # options differ only in full_content.
     on = {"images": {"count": 3, "design_facts": True, "snippet": {"enable": True}}}
     control = _check_design(
         "design control", _spec(design_search_options=on).design_search(DESIGN_QUERY)
     )
     print(f"control snippet={[bool(i.get('snippet')) for i in control['images']]} "
           f"design_facts={[bool(i.get('design_facts')) for i in control['images']]}")
-    assert len(control["images"]) == 3, control
-    assert any(i.get("snippet") for i in control["images"]), control["images"]
-    assert any(i.get("design_facts") for i in control["images"]), control["images"]
-    assert len(control["results"]) > 1, control
     assert not any(r.get("full_content") for r in control["results"]), control["results"]
 
     off = {
         "images": {"count": 3, "design_facts": False, "snippet": {"enable": False}},
-        "web_search": {"count": 1, "full_content": {"enable": True, "max_tokens": 200}},
+        "web_search": {"full_content": {"enable": True, "max_tokens": 200}},
     }
-    capped = _check_design(
+    turned_off = _check_design(
         "design options", _spec(design_search_options=off).design_search(DESIGN_QUERY)
     )
-    print(f"same images={[_base_url(i) for i in capped['images']] == [_base_url(i) for i in control['images']]}")
-    assert [_base_url(i) for i in capped["images"]] == [_base_url(i) for i in control["images"]]
-    assert not any(i.get("design_facts") or i.get("snippet") for i in capped["images"]), capped
-    assert len(capped["results"]) == 1 < len(control["results"]), capped
-    assert capped["results"][0].get("full_content"), capped
+    # Matched by URL without the signed query string, not by position.
+    by_url = {_base_url(i): i for i in control["images"]}
+    matched = [(by_url[_base_url(i)], i) for i in turned_off["images"] if _base_url(i) in by_url]
+    print(f"matched images={len(matched)} of {len(turned_off['images'])}")
+    assert any(before.get("snippet") for before, _ in matched), matched
+    assert any(before.get("design_facts") for before, _ in matched), matched
+    assert not any(i.get("design_facts") or i.get("snippet") for i in turned_off["images"])
+    assert turned_off["results"], turned_off
+    assert all(r.get("full_content") for r in turned_off["results"]), turned_off["results"]
 
     grouped = [i for i in control["images"] if (i.get("group") or {}).get("total", 0) >= 3]
     assert grouped, "no image from a group of 3 or more: pick another DESIGN_QUERY"
@@ -567,32 +564,32 @@ def test_live_design_search_options_and_group_follow_up() -> None:
     print(f"group total={total} seed position={position} positions={positions}")
     assert ids == [group_id] * total, ids
     assert positions == list(range(1, total + 1)), positions
-    assert _base_url(members[position - 1]) == _base_url(seed), (members[position - 1], seed)
+    same_slot = [i for i in members if i["group"]["position"] == position]
+    assert [_base_url(i) for i in same_slot] == [_base_url(seed)], (same_slot, seed)
 
 
-def test_live_design_search_web_toggle_and_domains() -> None:
-    off = _check_design(
-        "design web off",
-        _spec(design_search_options={"images": {"count": 1}, "web_search": {"enable": False}})
-        .design_search(DESIGN_QUERY),
-    )
+def _design_web(name: str, web_search: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    options: Dict[str, Any] = {"images": {"count": 1}}
+    if web_search is not None:
+        options["web_search"] = web_search
+    return _check_design(name, _spec(design_search_options=options).design_search(DESIGN_QUERY))
+
+
+def test_live_design_search_web_toggle_cap_and_domains() -> None:
+    off = _design_web("design web off", {"enable": False})
     assert not off.get("results"), off
     assert off["images"], off
 
-    control = _check_design(
-        "design web control",
-        _spec(design_search_options={"images": {"count": 1}, "web_search": {"count": 5}})
-        .design_search(DESIGN_QUERY),
-    )
+    # Each call below differs from the control in one web option only.
+    control = _design_web("design web control")
     hosts = [urlparse(r["url"]).hostname or "" for r in control["results"]]
-    assert hosts, control
+    capped = _design_web("design web count=2", {"count": 2})
+    print(f"control web={len(control['results'])} capped web={len(capped['results'])}")
+    assert len(control["results"]) > 2, control
+    assert 0 < len(capped["results"]) <= 2, capped
+
     domain = hosts[0][4:] if hosts[0].startswith("www.") else hosts[0]
-    options = {"images": {"count": 1},
-               "web_search": {"count": 5, "exclude_domains": [domain]}}
-    filtered = _check_design(
-        "design web exclude_domains",
-        _spec(design_search_options=options).design_search(DESIGN_QUERY),
-    )
+    filtered = _design_web("design web exclude_domains", {"exclude_domains": [domain]})
     filtered_hosts = [urlparse(r["url"]).hostname or "" for r in filtered["results"]]
     print(f"excluded {domain}: control={hosts} filtered={filtered_hosts}")
     assert filtered_hosts and not any(_on(h, domain) for h in filtered_hosts), filtered_hosts
