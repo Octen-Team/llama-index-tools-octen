@@ -44,6 +44,9 @@ has both new endpoints. One thing changes:
     handed to the model are fixed messages with the status and request id, without
     the upstream error text; errors raised to you keep their class, status and
     request id but carry a fixed message, no response body and no chained cause.
+    This covers the package's own messages and logs only: LlamaIndex callbacks
+    and instrumentation can record the raw `image_url` argument, so disable or
+    redact input tracing when passing signed URLs.
 - `design_search`: Design Search, finds design references: screenshots of web
   pages, page sections, app screens and slides with their design values, plus
   web results on the same query.
