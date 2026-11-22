@@ -46,7 +46,9 @@ has both new endpoints. One thing changes:
     earlier result's `group`, to get that web page's or deck's images in group
     order, up to `images.count` (the API default is 5); the tool description
     states that limit. `query` is required unless `group_id` is set; a call with
-    neither is returned to the model before any request.
+    neither is returned to the model before any request. With
+    `images={"enable": False}` the description offers no `group_id` lookup and a
+    `group_id` call without `query` is returned to the model.
   - `images` (`enable`, `count` 1-100, `design_facts`, and `snippet` with
     `enable` and `max_tokens` 100-100000; `group_id` is not accepted here),
     `web_search` (`enable`, `count`, `highlight`, `full_content`, domain,

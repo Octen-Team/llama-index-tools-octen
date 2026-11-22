@@ -210,6 +210,48 @@ def test_design_group_id_with_sdk_images_model(octen_cls: MagicMock) -> None:
     )
 
 
+def test_image_url_sent_is_the_trimmed_value_validated(octen_cls: MagicMock) -> None:
+    _spec().image_search(image_url=f"  {IMAGE_URL}\n")
+    _sdk(octen_cls, "image_search").assert_called_once_with(image_url=IMAGE_URL)
+
+
+def test_verbose_output_omits_the_image_url(octen_cls: MagicMock, capsys: Any) -> None:
+    signed = "https://cdn.example.com/a.jpg?sig=SECRET-TOKEN&se=2026"
+    OctenToolSpec(api_key="k", verbose=True).image_search(image_url=signed)
+    out = capsys.readouterr().out
+    assert "image URL" in out and "request_id=rid-img" in out
+    assert "SECRET-TOKEN" not in out and "cdn.example.com" not in out
+
+
+IMAGES_OFF = {"design_search_options": {"images": {"enable": False}}}
+
+
+def test_design_images_off_description_offers_no_group_lookup() -> None:
+    description = _tools(**IMAGES_OFF)["design_search"].metadata.description
+    assert "call again with that group_id" not in description
+    assert "screenshot" not in description
+    assert "group_id is not available" in description
+    _tools(**IMAGES_OFF)["design_search"].metadata.to_openai_tool()
+    assert "call again with that group_id" in _tools()["design_search"].metadata.description
+
+
+@pytest.mark.parametrize(
+    "images", [{"enable": False}, octen.DesignImageOptions(enable=False, count=3)]
+)
+def test_design_images_off_rejects_group_only_call(octen_cls: MagicMock, images: Any) -> None:
+    result = _spec(design_search_options={"images": images}).design_search(group_id=GROUP_ID)
+    assert set(result) == {"error"}
+    assert "query" in result["error"] and "turned off" in result["error"]
+    octen_cls.assert_not_called()
+
+
+def test_design_images_off_query_still_searches(octen_cls: MagicMock) -> None:
+    _spec(**IMAGES_OFF).design_search("pricing page")
+    _sdk(octen_cls, "design_search").assert_called_once_with(
+        query="pricing page", images={"enable": False}
+    )
+
+
 def test_blank_inputs_are_not_sent(octen_cls: MagicMock) -> None:
     _spec().image_search(query="  ", image_url=IMAGE_URL)
     _sdk(octen_cls, "image_search").assert_called_once_with(image_url=IMAGE_URL)
@@ -307,6 +349,9 @@ def test_design_wire_body() -> None:
         ({"image_url": "http://user@/x.png"}, "http(s)"),
         ({"image_url": "https://example.com:abc/x.png"}, "http(s)"),
         ({"image_url": "https://example.com:70000/x.png"}, "http(s)"),
+        ({"image_url": "https://exa mple.com/photo.png"}, "http(s)"),
+        ({"image_url": "https://example.com/my photo.png"}, "http(s)"),
+        ({"image_url": "https://example.com/a.png\tb"}, "http(s)"),
         ({"query": "x" * 501}, "query"),
         ({"query": "q", "include_domains": ["a.com"] * 11}, "include_domains"),
         ({"query": "q", "exclude_domains": ["a.com"] * 11}, "exclude_domains"),

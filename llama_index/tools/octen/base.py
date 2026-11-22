@@ -307,6 +307,14 @@ _DESIGN_SEARCH_DESCRIPTION = (
     "most {limit} per call (total says how many the group has); query may then be left "
     "out. Show an image by its url and cite its source_page."
 )
+# Used when the developer sets images.enable to False: only web results come back.
+_DESIGN_WEB_ONLY_DESCRIPTION = (
+    "Search the web for design references and articles on a design question: returns web "
+    "results (title, url and, when returned, a highlight) on the query. Image results "
+    "are turned off for this tool, so group_id is not available; always pass query. Use "
+    "it when designing or restyling a UI, a landing page section or a slide deck; for "
+    "general photos or pictures use image_search. Cite each result by its url."
+)
 # The API's default images.count, documented at https://docs.octen.ai/api-reference/design-search.md
 _DESIGN_DEFAULT_IMAGE_COUNT = 5
 
@@ -315,6 +323,9 @@ def _blank(value: Optional[str]) -> bool:
 
 
 def _is_http_url(value: str) -> bool:
+    # urlparse silently drops tabs and newlines, so whitespace is checked first.
+    if any(c.isspace() for c in value):
+        return False
     try:
         parsed = urlparse(value)
         parsed.port  # raises on a non-numeric or out-of-range port
@@ -794,6 +805,12 @@ class OctenToolSpec(BaseToolSpec):
         if fn_name == "image_search":
             return ToolMetadata(
                 name=fn_name, description=_IMAGE_SEARCH_DESCRIPTION, fn_schema=_ImageSearchArgs
+            )
+        if fn_name == "design_search" and self._design_images_off():
+            return ToolMetadata(
+                name=fn_name,
+                description=_DESIGN_WEB_ONLY_DESCRIPTION,
+                fn_schema=_DesignSearchArgs,
             )
         if fn_name == "design_search":
             images = _as_dict(self._options["design_search_options"].get("images"))
@@ -1386,7 +1403,8 @@ class OctenToolSpec(BaseToolSpec):
                 "error": "Got neither query nor image_url. Nothing was searched. Pass query "
                 "(text describing the images) or image_url (a public image URL), exactly one."
             }
-        if has_url and not _is_http_url(str(image_url).strip()):
+        url = str(image_url).strip() if has_url else None
+        if url is not None and not _is_http_url(url):
             return {
                 "error": "image_url must be a public http(s) URL of an image. "
                 "Nothing was searched."
@@ -1395,7 +1413,7 @@ class OctenToolSpec(BaseToolSpec):
             k: v
             for k, v in (
                 ("query", query if has_query else None),
-                ("image_url", image_url if has_url else None),
+                ("image_url", url),
                 ("include_domains", include_domains),
                 ("exclude_domains", exclude_domains),
             )
@@ -1403,7 +1421,8 @@ class OctenToolSpec(BaseToolSpec):
         }
         kwargs = self._developer_kwargs("image_search")
         kwargs.update(model_args)
-        subject = query if has_query else f"image {image_url}"
+        # A signed image URL can carry a token, so it is never printed.
+        subject = query if has_query else "image URL"
         return self._call("image_search", kwargs, str(subject))
 
     def design_search(
@@ -1429,6 +1448,11 @@ class OctenToolSpec(BaseToolSpec):
         except ValidationError as exc:
             return {"error": f"Invalid arguments: {_describe(exc)}"}
         has_query, has_group = not _blank(query), not _blank(group_id)
+        if has_group and not has_query and self._design_images_off():
+            return {
+                "error": "Image results are turned off for this tool, so group_id cannot be "
+                "used. Nothing was searched. Pass query instead."
+            }
         if not has_query and not has_group:
             return {
                 "error": "Got neither query nor group_id. Nothing was searched. Pass query "
@@ -1442,6 +1466,10 @@ class OctenToolSpec(BaseToolSpec):
             kwargs["query"] = query
         subject = query if has_query else f"group {group_id}"
         return self._call("design_search", kwargs, str(subject))
+
+    def _design_images_off(self) -> bool:
+        images = _as_dict(self._options["design_search_options"].get("images"))
+        return images.get("enable") is False
 
     def _developer_kwargs(self, endpoint: str) -> Dict[str, Any]:
         """Developer options for one call, with the timeout resolved."""
