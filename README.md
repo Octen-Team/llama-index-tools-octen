@@ -166,7 +166,7 @@ for item in result["data"]["results"]:
 
 `image_search` finds images on the web by a text query or by a reference image. The model passes exactly one of `query` (text) or `image_url` (a public http(s) URL of an image already on the web), plus optional `include_domains` and `exclude_domains`, matched against each result's `source_page`. Base64 image input is not offered to the model, as it is too large for a model to produce; call the `octen` SDK's `image_search.search` directly for that.
 
-`design_search` finds design references: each image result is a screenshot of a web page, page section, app screen or slide with its design values, and web results on the same query come back alongside. The model sets `query` and, to get every image of a web page or deck in order, `group_id`, taken from the `group` of an earlier result; `query` is required unless `group_id` is set.
+`design_search` finds design references: each image result is a screenshot of a web page, page section, app screen or slide with its design values, and web results on the same query come back alongside. The model sets `query` and, to page through a web page or deck, `group_id`, taken from the `group` of an earlier result; `query` is required unless `group_id` is set. A `group_id` call returns that group's images in group order, up to `images.count` (the API default is 5): set `design_search_options={"images": {"count": ...}}` high enough for the groups you expect, since a group can have more images than that (its `total`). The tool description tells the model this limit.
 
 ```python
 tool = OctenToolSpec(

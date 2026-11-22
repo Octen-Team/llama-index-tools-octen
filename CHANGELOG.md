@@ -42,10 +42,11 @@ has both new endpoints. One thing changes:
 - `design_search`: Design Search, finds design references: screenshots of web
   pages, page sections, app screens and slides with their design values, plus
   web results on the same query.
-  - The model sets `query` (max 500 characters) and, to get every image of a
-    web page or deck in order, `group_id`, taken from an earlier result's
-    `group`. `query` is required unless `group_id` is set; a call with neither
-    is returned to the model before any request.
+  - The model sets `query` (max 500 characters) and `group_id`, taken from an
+    earlier result's `group`, to get that web page's or deck's images in group
+    order, up to `images.count` (the API default is 5); the tool description
+    states that limit. `query` is required unless `group_id` is set; a call with
+    neither is returned to the model before any request.
   - `images` (`enable`, `count` 1-100, `design_facts`, and `snippet` with
     `enable` and `max_tokens` 100-100000; `group_id` is not accepted here),
     `web_search` (`enable`, `count`, `highlight`, `full_content`, domain,

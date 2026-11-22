@@ -274,8 +274,8 @@ class _DesignSearchArgs(BaseModel):
     group_id: Optional[str] = Field(
         default=None,
         description="The group.group_id of an image result from an earlier design_search "
-        "call, to get every image of that web page or deck in order instead of searching "
-        "by query.",
+        "call, to get that web page's or deck's images in group order instead of "
+        "searching by query.",
     )
 
 
@@ -302,10 +302,13 @@ _DESIGN_SEARCH_DESCRIPTION = (
     "results on the same query come back alongside. Use it when designing or restyling "
     "a UI, a landing page section or a slide deck and you want real examples to follow; "
     "for general photos or pictures use image_search. A web_section or slide result "
-    "carries a group (group_id, name, position, total) for its web page or deck: to get "
-    "every image of that page or deck in order, call again with that group_id; query "
-    "may then be left out. Show an image by its url and cite its source_page."
+    "carries a group (group_id, name, position, total) for its web page or deck: call "
+    "again with that group_id to get that page's or deck's images in group order, at "
+    "most {limit} per call (total says how many the group has); query may then be left "
+    "out. Show an image by its url and cite its source_page."
 )
+# The API's default images.count, documented at https://docs.octen.ai/api-reference/design-search.md
+_DESIGN_DEFAULT_IMAGE_COUNT = 5
 
 def _blank(value: Optional[str]) -> bool:
     return value is None or not value.strip()
@@ -314,6 +317,7 @@ def _blank(value: Optional[str]) -> bool:
 def _is_http_url(value: str) -> bool:
     try:
         parsed = urlparse(value)
+        parsed.port  # raises on a non-numeric or out-of-range port
         return parsed.scheme.lower() in ("http", "https") and bool(parsed.hostname)
     except ValueError:  # e.g. "Invalid IPv6 URL" for an unclosed bracket
         return False
@@ -792,9 +796,10 @@ class OctenToolSpec(BaseToolSpec):
                 name=fn_name, description=_IMAGE_SEARCH_DESCRIPTION, fn_schema=_ImageSearchArgs
             )
         if fn_name == "design_search":
-            return ToolMetadata(
-                name=fn_name, description=_DESIGN_SEARCH_DESCRIPTION, fn_schema=_DesignSearchArgs
-            )
+            images = _as_dict(self._options["design_search_options"].get("images"))
+            limit = images.get("count") or _DESIGN_DEFAULT_IMAGE_COUNT
+            description = _DESIGN_SEARCH_DESCRIPTION.format(limit=limit)
+            return ToolMetadata(name=fn_name, description=description, fn_schema=_DesignSearchArgs)
         model_facing = _MODEL_FACING.get(fn_name)
         if model_facing is None:
             return super().get_metadata_from_fn_name(fn_name, spec_functions=spec_functions)
@@ -1413,7 +1418,7 @@ class OctenToolSpec(BaseToolSpec):
             query: What to find design references for, max 500 chars.
                 Required unless group_id is set.
             group_id: The group.group_id of an earlier image result; returns
-                every image of that web page or deck, in order.
+                that web page's or deck's images in group order, up to images.count.
 
         Returns:
             {"data": {"query"?, "images", "results"}, "request_id", "warning"?},
@@ -1428,7 +1433,7 @@ class OctenToolSpec(BaseToolSpec):
             return {
                 "error": "Got neither query nor group_id. Nothing was searched. Pass query "
                 "(what to find design references for), or group_id from an earlier "
-                "result's group to get every image of that web page or deck."
+                "result's group to get that web page's or deck's images."
             }
         kwargs = self._developer_kwargs("design_search")
         if has_group:

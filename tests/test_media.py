@@ -108,6 +108,25 @@ def test_schema_carries_api_limits() -> None:
     assert props["query"]["anyOf"][0]["maxLength"] == 500
 
 
+@pytest.mark.parametrize(
+    ("options", "limit"),
+    [
+        ({}, 5),
+        ({"design_search_options": {"images": {"design_facts": False}}}, 5),
+        ({"design_search_options": {"images": {"count": 30}}}, 30),
+        ({"design_search_options": {"images": octen.DesignImageOptions(count=100)}}, 100),
+    ],
+)
+def test_design_group_follow_up_states_the_image_cap(options: Dict[str, Any], limit: int) -> None:
+    # A follow-up returns the group's images up to images.count (API default 5), not all.
+    metadata = _tools(**options)["design_search"].metadata
+    assert f"at most {limit} per call" in metadata.description
+    group_id = metadata.fn_schema.model_json_schema()["properties"]["group_id"]["description"]
+    for text in (metadata.description, group_id):
+        assert "every image" not in text
+    metadata.to_openai_tool()
+
+
 def test_descriptions_pass_openai_length_check_and_keep_rules() -> None:
     tools = _tools()
     for name in FUNCTIONS:
@@ -286,6 +305,8 @@ def test_design_wire_body() -> None:
         ({"image_url": "https://:443/x.png"}, "http(s)"),
         ({"image_url": "https://[example.com/x.jpg"}, "http(s)"),
         ({"image_url": "http://user@/x.png"}, "http(s)"),
+        ({"image_url": "https://example.com:abc/x.png"}, "http(s)"),
+        ({"image_url": "https://example.com:70000/x.png"}, "http(s)"),
         ({"query": "x" * 501}, "query"),
         ({"query": "q", "include_domains": ["a.com"] * 11}, "include_domains"),
         ({"query": "q", "exclude_domains": ["a.com"] * 11}, "exclude_domains"),
