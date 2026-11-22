@@ -2,8 +2,8 @@
 
 Skipped unless OCTEN_LIVE=1 and OCTEN_API_KEY are set. Each test makes at
 most one billed request with the smallest result count the endpoint allows,
-except the search_premier and extract tests, which make two (an option under
-test and a same-input control) with a small count or one to three URLs.
+except the search_premier and extract tests, which make two or three (options
+under test and same-input controls) with a small count or one to three URLs.
 """
 
 import os
@@ -225,22 +225,31 @@ def test_live_search_premier_time_window() -> None:
 
 
 def test_live_search_premier_each_time_bound() -> None:
-    # Without start_time a result before the window comes back, and without end_time one after.
+    # The unfiltered control must hold dated results before start and after end, so a
+    # single-bound call that the server ignored would fail its own bound check.
     start, end = _ts(BOUND_WINDOW[0]), _ts(BOUND_WINDOW[1])
     assert start and end
-    before = _premier(count=10, end_time=BOUND_WINDOW[1])
+    control = _premier(count=10)
+    _check("search_premier unbounded", control)
+    print(f"unbounded time_published={_published(control)}")
+    control_dated = [t for t in _published(control) if t]
+    assert any(t < start for t in control_dated), control
+    assert any(t > end for t in control_dated), control
+
+    # Start-only first: dropping start_time then fails on the second call.
     after = _premier(count=10, start_time=BOUND_WINDOW[0])
-    _check("search_premier end-only", before)
     _check("search_premier start-only", after)
-    print(f"end-only time_published={_published(before)}")
     print(f"start-only time_published={_published(after)}")
-    # Each call keeps its own bound, and its control shows the result on the other side.
-    before_dated = [t for t in _published(before) if t]
     after_dated = [t for t in _published(after) if t]
-    assert before_dated and all(t <= end for t in before_dated), before
     assert after_dated and all(t >= start for t in after_dated), after
-    assert any(t < start for t in before_dated), before
     assert any(t > end for t in after_dated), after
+
+    before = _premier(count=10, end_time=BOUND_WINDOW[1])
+    _check("search_premier end-only", before)
+    print(f"end-only time_published={_published(before)}")
+    before_dated = [t for t in _published(before) if t]
+    assert before_dated and all(t <= end for t in before_dated), before
+    assert any(t < start for t in before_dated), before
 
 
 def test_live_search_premier_model_cannot_pass_count() -> None:
@@ -292,16 +301,24 @@ def test_live_extract_query_highlights_with_control() -> None:
 
 
 def test_live_extract_format_and_links_with_control() -> None:
-    options = {"format": "text", "include_links": {"max_links": 5}}
-    control = _items("extract control", _spec().extract([EXTRACT_DOC]))[0]
+    # The capped call goes first, so a failure there costs one billed URL.
+    options = {"format": "text", "include_links": {"max_links": 3}}
     result = _items(
         "extract text+links", _spec(extract_options=options).extract([EXTRACT_DOC])
     )[0]
+    print(f"capped links={len(result.get('links') or [])}")
+    assert len(result.get("links") or []) == 3, result.get("links")
     heading = re.compile(r"^#{1,6} ", re.M)
-    assert heading.search(control["full_content"]), control["full_content"][:300]
     assert not heading.search(result["full_content"]), result["full_content"][:300]
-    assert not control.get("links"), control.get("links")
-    assert result.get("links") and len(result["links"]) <= 5, result.get("links")
+
+    # Control: links on with the server default, markdown by default.
+    control = _items(
+        "extract links control",
+        _spec(extract_options={"include_links": {}}).extract([EXTRACT_DOC]),
+    )[0]
+    print(f"control links={len(control.get('links') or [])}")
+    assert len(control.get("links") or []) > 3, control.get("links")
+    assert heading.search(control["full_content"]), control["full_content"][:300]
 
 
 def test_live_extract_mode_advanced_with_control(monkeypatch: Any) -> None:
@@ -323,12 +340,15 @@ def test_live_extract_mode_advanced_with_control(monkeypatch: Any) -> None:
     by_mode = [r.successful_by_mode for r in responses]
     print(f"resolved_mode={control.get('resolved_mode')},{advanced.get('resolved_mode')} "
           f"successful_by_mode={by_mode}")
+    # octen documents that an advanced request may resolve to standard: re-check before
+    # calling a failure here a forwarding bug. It is the only live signal that mode is sent.
     assert control["resolved_mode"] == "standard"
     assert advanced["resolved_mode"] == "advanced"
-    assert by_mode == [
-        {"standard_urls": 1, "advanced_urls": 0},
-        {"standard_urls": 0, "advanced_urls": 1},
-    ]
+    # Billing agrees with the resolved_mode each item reports.
+    for response, item in zip(responses, (control, advanced)):
+        billed = response.successful_by_mode
+        assert billed[f"{item['resolved_mode']}_urls"] == 1, billed
+        assert sum(billed.values()) == 1, billed
 
 
 def test_live_extract_cap_rejects_without_request(mocker: Any) -> None:
