@@ -1125,10 +1125,15 @@ class OctenToolSpec(BaseToolSpec):
         """
         from octen import ExtractRequest
 
+        # Normalize once (a tuple or generator becomes a list), then cap and send that list.
+        try:
+            urls = _ExtractArgs(urls=urls, query=query).urls
+        except ValidationError as exc:
+            return {"error": f"Invalid arguments: {_describe(exc)}"}
         max_urls = self._extract_max_urls()
-        if isinstance(urls, list) and not urls:
+        if not urls:
             return {"error": f"urls is empty: pass 1 to at most {max_urls} page URLs."}
-        if isinstance(urls, list) and len(urls) > max_urls:
+        if len(urls) > max_urls:
             return {
                 "error": f"Got {len(urls)} URLs, but this tool reads at most {max_urls} "
                 "URLs per call. Nothing was fetched. Split the URLs into several calls "

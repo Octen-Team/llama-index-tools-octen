@@ -6,6 +6,7 @@ octen 0.13.0 (octen/resources/extract.py, octen/models/extract.py).
 
 import inspect
 import logging
+from collections import deque
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
@@ -298,6 +299,41 @@ def test_custom_cap(octen_cls: MagicMock, cap: int) -> None:
     octen_cls.assert_not_called()
     assert "error" not in spec.extract(urls[:cap])
     _sdk(octen_cls).assert_called_once_with(urls=urls[:cap], request_timeout=DERIVED)
+
+
+def _six() -> List[str]:
+    return [f"https://example.com/{i}" for i in range(6)]
+
+
+@pytest.mark.parametrize(
+    "make",
+    [lambda: tuple(_six()), lambda: deque(_six()), lambda: (u for u in _six())],
+    ids=["tuple", "deque", "generator"],
+)
+def test_cap_applies_to_non_list_iterables(octen_cls: MagicMock, make: Any) -> None:
+    # The SDK's List[str] accepts these too, so the cap must see them.
+    result = _spec().extract(make())
+    assert set(result) == {"error"}
+    assert "Got 6 URLs" in result["error"] and "at most 5" in result["error"]
+    octen_cls.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "make",
+    [lambda: tuple(URLS), lambda: deque(URLS), lambda: (u for u in URLS)],
+    ids=["tuple", "deque", "generator"],
+)
+def test_validated_list_is_what_is_sent(octen_cls: MagicMock, make: Any) -> None:
+    assert "error" not in _spec().extract(make())
+    sent = _sdk(octen_cls).call_args.kwargs["urls"]
+    assert type(sent) is list and sent == URLS
+
+
+@pytest.mark.parametrize("empty", [(), deque(), iter([])], ids=["tuple", "deque", "iterator"])
+def test_empty_non_list_rejected_without_call(octen_cls: MagicMock, empty: Any) -> None:
+    result = _spec().extract(empty)
+    assert set(result) == {"error"} and "urls is empty" in result["error"]
+    octen_cls.assert_not_called()
 
 
 def test_empty_url_list_rejected_without_call(octen_cls: MagicMock) -> None:
