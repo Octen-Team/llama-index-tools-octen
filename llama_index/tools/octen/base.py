@@ -2,9 +2,11 @@
 
 import copy
 import datetime
+import itertools
 import logging
 import math
 import os
+import re
 import warnings
 from typing import Any, Dict, FrozenSet, List, Literal, Optional, Tuple, Type
 
@@ -76,6 +78,17 @@ class _BusinessSearchArgs(BaseModel):
     )
     language: Optional[List[str]] = Field(
         default=None, description=_LANGUAGE_DESC + " Applies to the ranked sources only."
+    )
+
+
+class _SearchPremierArgs(BaseModel):
+    query: str = Field(description="The question or search query, max 500 chars.")
+    include_domains: Optional[List[str]] = Field(
+        default=None,
+        description='Only return results from these domains, e.g. ["arxiv.org"].',
+    )
+    exclude_domains: Optional[List[str]] = Field(
+        default=None, description="Drop results from these domains."
     )
 
 
@@ -185,7 +198,56 @@ _MODEL_FACING: Dict[str, Tuple[str, Type[BaseModel]]] = {
         'its own area ("ramen in Shinjuku") needs neither.',
         _PlaceSearchArgs,
     ),
+    "search_premier": (
+        "Search the live web with deeper retrieval and reranking than search, and "
+        "return ranked results (title, url, highlight). It searches more broadly and "
+        "ranks more carefully, so the page that holds the answer ranks higher, and each "
+        "highlight is the passage most relevant to the query from the whole page. Use "
+        "for questions that need the exact page holding the answer: a specific fact, a "
+        "detail deep inside a page, a niche or long-tail document, or a named report, "
+        "filing or document. Pass the question as is. Not for quick, low-latency "
+        "lookups (use search); for a multi-part question use broad_search. Narrow with "
+        "include_domains and exclude_domains.",
+        _SearchPremierArgs,
+    ),
 }
+
+
+class _ExtractArgs(BaseModel):
+    urls: List[str] = Field(description="The page URLs to read, each at most 2048 characters.")
+    query: Optional[str] = Field(
+        default=None,
+        description="Optional; leave unset in the normal case. When set (max 500 chars), "
+        "each result returns highlights, the passages relevant to it, instead of the "
+        "full page content.",
+    )
+
+
+# Based on the hosted MCP server's extract tool; {max_urls} is the developer's cap.
+_EXTRACT_DESCRIPTION = (
+    "Read web pages by URL and return their clean content (markdown or text). Match "
+    "each result to its input by the result's url field, not by position. Use it when "
+    "you already have the URLs; to find "
+    "pages first, use search or broad_search. Send at most {max_urls} URLs per call; "
+    "for more, split them across several calls. Without query, each result has the "
+    "page's full_content, which is what you want in almost all cases. Only pass query "
+    "when you want relevance-ranked snippets on a specific topic: each result then has "
+    "highlights instead of full_content, so the page body is partial. Results may also "
+    "carry a category (topic) and page_structure (page type) classification. A URL "
+    'that could not be read comes back with status "failed" and an error_message '
+    "while the other URLs still return their content."
+)
+
+# Documented at https://docs.octen.ai/api-reference/extract.md
+_EXTRACT_DEFAULT_MAX_URLS = 5
+_EXTRACT_DEFAULT_URL_TIMEOUT = 30
+# Client headroom over the per-URL budget, as in the hosted MCP server.
+_EXTRACT_CLIENT_HEADROOM = 90
+_EXTRACT_INT_BOUNDS = (
+    ("max_urls", 1, 20),
+    ("url_timeout", 1, 60),
+    ("max_age_seconds", 300, 31_536_000),
+)
 
 
 _SEARCH_TYPE_DEPRECATION = (
@@ -203,7 +265,63 @@ _ALLOWED_OPTIONS: Dict[str, FrozenSet[str]] = {
     "business_search_options": _COMMON_OPTIONS | {"entities"},
     "pulse_search_options": _COMMON_OPTIONS | {"mode"},
     "place_search_options": frozenset({"places", "web_search", "timeout"}),
+    "search_premier_options": _COMMON_OPTIONS
+    | {
+        "result_type",
+        "include_text",
+        "exclude_text",
+        "language",
+        "time_basis",
+        "time_range",
+        "start_time",
+        "end_time",
+        "format",
+        "safesearch",
+        "include_images",
+    },
+    # url_timeout is the API's per-URL budget, sent as "timeout" in the request.
+    "extract_options": frozenset(
+        {
+            "mode",
+            "format",
+            "max_age_seconds",
+            "url_timeout",
+            "include_images",
+            "include_videos",
+            "include_audio",
+            "include_links",
+            "max_urls",
+            "timeout",
+        }
+    ),
 }
+
+# RFC 3339 date-time, the "format: date-time" of the Web Search Premier API reference.
+# Stricter on purpose: uppercase T and Z only, as in the reference's example, and no leap
+# second (:60), which Python's datetime cannot represent.
+_RFC3339 = re.compile(
+    r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})"
+    r"(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))",
+    re.ASCII,
+)
+
+
+def _is_rfc3339(value: Any) -> bool:
+    match = _RFC3339.fullmatch(value) if isinstance(value, str) else None
+    if match is None:
+        return False
+    year, month, day, hour, minute, second, off_hour, off_minute = match.groups()
+    try:
+        datetime.datetime(
+            int(year), int(month), int(day), int(hour), int(minute), int(second)
+        )
+    except ValueError:
+        return False
+    return off_hour is None or (int(off_hour) <= 23 and int(off_minute) <= 59)
+
+
+# Values documented at https://docs.octen.ai/api-reference/search-premier.md
+_LANGUAGES = frozenset("ar de en es fr hi id it ja ko nl pl pt ru th tr vi zh".split())
 
 
 _MAY_HAVE_BEEN_SENT = (
@@ -281,6 +399,9 @@ def _validate_option_values(name: str, options: Dict[str, Any]) -> None:
     """Check developer options with the SDK request model the call would build."""
     import octen
 
+    if name == "extract_options":
+        _check_extract_options(options)
+        return
     _check_timeout(name, options.get("timeout"))
 
     fields = {k: v for k, v in options.items() if k != "timeout"}
@@ -297,10 +418,75 @@ def _validate_option_values(name: str, options: Dict[str, Any]) -> None:
                 "business_search_options": octen.BusinessSearchRequest,
                 "pulse_search_options": octen.PulseSearchRequest,
                 "place_search_options": octen.PlaceSearchRequest,
+                "search_premier_options": octen.PremierSearchRequest,
             }[name]
+            if name == "search_premier_options":
+                _check_premier_options(fields)
             request_model(query=query, **fields)
     except ValidationError as exc:
         raise ValueError(f"{name} has an invalid value: {_describe(exc)}") from exc
+    except ValueError as exc:
+        raise ValueError(f"{name} has an invalid value: {exc}") from None
+
+
+def _check_premier_options(options: Dict[str, Any]) -> None:
+    """Checks octen's PremierSearchRequest leaves out; each would fail on every call."""
+    for key in ("highlight", "full_content"):
+        value = options.get(key)
+        # octen keeps unknown keys in these, so a typo like "enabled" would do nothing.
+        if isinstance(value, BaseModel):
+            given = set(value.model_extra or {})
+        else:
+            given = set(value or {}) if isinstance(value, dict) else set()
+        # Keys may be of any type, so compare and report them via repr.
+        unknown = sorted(given - {"enable", "max_tokens"}, key=repr)
+        if unknown:
+            names = ", ".join(repr(k) for k in unknown)
+            raise ValueError(f"{key}: unknown option {names}")
+    language = options.get("language")
+    if language is not None:
+        if not isinstance(language, list) or not all(
+            isinstance(code, str) and code in _LANGUAGES for code in language
+        ):
+            codes = ", ".join(sorted(_LANGUAGES))
+            raise ValueError(f"language must be a list of: {codes}")
+    for key in ("start_time", "end_time"):
+        value = options.get(key)
+        if value is None:
+            continue
+        if not _is_rfc3339(value):
+            raise ValueError(
+                f"{key} must be an RFC 3339 time, e.g. 2025-01-01T00:00:00Z"
+            )
+
+
+def _check_extract_options(options: Dict[str, Any]) -> None:
+    """Check extract options; integers are strict so that True or 5.5 is not coerced."""
+    import octen
+
+    name = "extract_options"
+    _check_timeout(name, options.get("timeout"))
+    for key, low, high in _EXTRACT_INT_BOUNDS:
+        value = options.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+            raise ValueError(
+                f"{name} has an invalid value: {key} must be an integer from "
+                f"{low} to {high}, got {value!r}"
+            )
+    fields = _extract_sdk_options(options)
+    fields.pop("request_timeout", None)
+    try:
+        octen.ExtractRequest(urls=["https://example.com"], **fields)
+    except ValidationError as exc:
+        raise ValueError(f"{name} has an invalid value: {_describe(exc)}") from exc
+
+
+def _extract_sdk_options(options: Dict[str, Any]) -> Dict[str, Any]:
+    """Map extract_options to the SDK's names: url_timeout -> timeout, timeout -> request_timeout."""
+    renamed = {"url_timeout": "timeout", "timeout": "request_timeout"}
+    return {renamed.get(k, k): v for k, v in options.items() if k != "max_urls"}
 
 
 def _invalid_model_args(request_model: Any, model_args: Dict[str, Any]) -> Optional[str]:
@@ -331,6 +517,8 @@ class OctenToolSpec(BaseToolSpec):
         "business_search",
         "pulse_search",
         "place_search",
+        "search_premier",
+        "extract",
         "current_date",
     ]
 
@@ -347,6 +535,8 @@ class OctenToolSpec(BaseToolSpec):
         business_search_options: Optional[Dict[str, Any]] = None,
         pulse_search_options: Optional[Dict[str, Any]] = None,
         place_search_options: Optional[Dict[str, Any]] = None,
+        search_premier_options: Optional[Dict[str, Any]] = None,
+        extract_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize with parameters.
 
@@ -367,6 +557,16 @@ class OctenToolSpec(BaseToolSpec):
                 count, highlight, full_content, mode, timeout.
             place_search_options: Options sent on every place_search call:
                 places, web_search, timeout.
+            search_premier_options: Options sent on every search_premier call:
+                count, result_type, highlight, full_content, include_text,
+                exclude_text, language, time_basis, time_range, start_time,
+                end_time, format, safesearch, include_images, timeout.
+            extract_options: Options for every extract call: mode, format,
+                max_age_seconds, url_timeout (the API's per-URL budget, 1-60),
+                include_images, include_videos, include_audio, include_links,
+                max_urls (URLs the model may send per call, 1-20, default 5)
+                and timeout (the HTTP request timeout per attempt; defaults to
+                the spec-level timeout, else (url_timeout or 30) + 90 seconds).
 
         Raises:
             ValueError: if no API key is available, or an options dict holds
@@ -384,6 +584,8 @@ class OctenToolSpec(BaseToolSpec):
             "business_search_options": business_search_options,
             "pulse_search_options": pulse_search_options,
             "place_search_options": place_search_options,
+            "search_premier_options": search_premier_options,
+            "extract_options": extract_options,
         }
         self._options: Dict[str, Dict[str, Any]] = {}
         for name, options in given.items():
@@ -414,6 +616,9 @@ class OctenToolSpec(BaseToolSpec):
         The older functions keep the metadata llama-index-core derives from
         their signatures and docstrings.
         """
+        if fn_name == "extract":
+            description = _EXTRACT_DESCRIPTION.format(max_urls=self._extract_max_urls())
+            return ToolMetadata(name=fn_name, description=description, fn_schema=_ExtractArgs)
         model_facing = _MODEL_FACING.get(fn_name)
         if model_facing is None:
             return super().get_metadata_from_fn_name(fn_name, spec_functions=spec_functions)
@@ -876,6 +1081,91 @@ class OctenToolSpec(BaseToolSpec):
             user_location={"type": "approximate", **location} if location else None,
         )
 
+    def search_premier(
+        self,
+        query: str,
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Web Search Premier: web search with deeper retrieval and reranking.
+
+        The description and argument schema the model sees are in
+        _MODEL_FACING. Developer options come from search_premier_options.
+
+        Args:
+            query: The question or search query, max 500 chars.
+            include_domains: Only return results from these domains.
+            exclude_domains: Drop results from these domains.
+
+        Returns:
+            {"data", "request_id", "warning"?}, or {"error": ...} for errors
+            handed to the model.
+        """
+        from octen import PremierSearchRequest
+
+        return self._vertical_search(
+            "search_premier",
+            PremierSearchRequest,
+            query=query,
+            include_domains=include_domains,
+            exclude_domains=exclude_domains,
+        )
+
+    def extract(self, urls: List[str], query: Optional[str] = None) -> Dict[str, Any]:
+        """Extract: read web pages by URL.
+
+        The description and argument schema the model sees are built in
+        get_metadata_from_fn_name. Developer options come from extract_options.
+
+        Args:
+            urls: The page URLs, at most max_urls of them, each up to 2048 chars.
+            query: Optional; returns highlights instead of full content.
+
+        Returns:
+            {"data", "request_id", "warning"?}, or {"error": ...} for errors
+            handed to the model. Failed URLs stay in data with their error.
+        """
+        from octen import ExtractRequest
+
+        max_urls = self._extract_max_urls()
+        # Read at most max_urls + 1 entries from an unsized iterable, so an endless one ends.
+        unsized = not hasattr(urls, "__len__") and hasattr(urls, "__iter__")
+        if unsized:
+            urls = list(itertools.islice(urls, max_urls + 1))
+        # Normalize once (a tuple or generator becomes a list), then cap and send that list.
+        try:
+            urls = _ExtractArgs(urls=urls, query=query).urls
+        except ValidationError as exc:
+            return {"error": f"Invalid arguments: {_describe(exc)}"}
+        if not urls:
+            return {"error": f"urls is empty: pass 1 to at most {max_urls} page URLs."}
+        if len(urls) > max_urls:
+            got = f"more than {max_urls}" if unsized else str(len(urls))
+            return {
+                "error": f"Got {got} URLs, but this tool reads at most {max_urls} "
+                "URLs per call. Nothing was fetched. Split the URLs into several calls "
+                f"of at most {max_urls} each, or keep only the ones you need."
+            }
+        model_args = {k: v for k, v in (("urls", urls), ("query", query)) if v is not None}
+        problem = _invalid_model_args(ExtractRequest, model_args)
+        if problem is not None:
+            return {"error": problem}
+
+        kwargs = _extract_sdk_options(self._options["extract_options"])
+        if kwargs.get("request_timeout") is None:
+            # A batch can outlast the per-URL budget, so the client waits longer.
+            url_timeout = kwargs.get("timeout") or _EXTRACT_DEFAULT_URL_TIMEOUT
+            kwargs["request_timeout"] = (
+                self._timeout if self._timeout is not None
+                else url_timeout + _EXTRACT_CLIENT_HEADROOM
+            )
+        kwargs.update(model_args)
+        return self._call("extract", kwargs, f"{len(urls)} URLs")
+
+    def _extract_max_urls(self) -> int:
+        max_urls = self._options["extract_options"].get("max_urls")
+        return _EXTRACT_DEFAULT_MAX_URLS if max_urls is None else max_urls
+
     def _vertical_search(
         self, endpoint: str, request_model: Any, **model_args: Any
     ) -> Dict[str, Any]:
@@ -892,11 +1182,16 @@ class OctenToolSpec(BaseToolSpec):
         if timeout is not None:
             kwargs["timeout"] = timeout
         kwargs.update(model_args)
+        return self._call(endpoint, kwargs, model_args["query"])
 
+    def _call(self, endpoint: str, kwargs: Dict[str, Any], subject: str) -> Dict[str, Any]:
+        """Send one request and shape the result for the model."""
         client = self._get_client()
         try:
             if endpoint == "place_search":
                 response = client.place_search.search(**kwargs)
+            elif endpoint == "extract":
+                response = client.extract.extract(**kwargs)
             else:
                 response = getattr(client.search, endpoint)(**kwargs)
         except Exception as exc:
@@ -917,7 +1212,11 @@ class OctenToolSpec(BaseToolSpec):
         if warning:
             result["warning"] = warning
         if self._verbose:
-            print(f"[Octen Tool] {endpoint} request_id={request_id} for: {model_args['query']}")
+            line = f"[Octen Tool] {endpoint} request_id={request_id} for: {subject}"
+            if endpoint == "extract":
+                # Per-mode billing counts are for the developer, not the model.
+                line += f" usage={(response.meta or {}).get('usage')}"
+            print(line)
         return result
 
     def current_date(self) -> str:

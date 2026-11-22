@@ -1,4 +1,4 @@
-"""Unit tests for the broad, news, business, pulse and place search functions."""
+"""Unit tests for the search_premier, broad, news, business, pulse and place functions."""
 
 import inspect
 import logging
@@ -25,9 +25,25 @@ SDK_METHOD = {
     "business_search": "search.business_search",
     "pulse_search": "search.pulse_search",
     "place_search": "place_search.search",
+    "search_premier": "search.search_premier",
 }
 NEW_FUNCTIONS = list(SDK_METHOD)
 FILTERED = ["broad_search", "news_search", "business_search"]
+PREMIER_OPTIONS: Dict[str, Any] = {
+    "count": 3,
+    "result_type": "dynamic",
+    "highlight": {"enable": True, "max_tokens": 600},
+    "full_content": {"enable": True, "max_tokens": 1000},
+    "include_text": ["kafka"],
+    "exclude_text": ["ads"],
+    "language": ["en", "de"],
+    "time_basis": "published",
+    "start_time": "2025-01-01T00:00:00Z",
+    "end_time": "2025-06-30T23:59:59+08:00",
+    "format": "markdown",
+    "safesearch": "off",
+    "include_images": True,
+}
 
 
 def _sdk_method(octen_cls: MagicMock, function: str) -> MagicMock:
@@ -66,6 +82,8 @@ def test_spec_functions_list() -> None:
         "business_search",
         "pulse_search",
         "place_search",
+        "search_premier",
+        "extract",
         "current_date",
     ]
 
@@ -82,6 +100,7 @@ def test_tool_list_schemas() -> None:
             "query", "latitude", "longitude", "radius",
             "city", "region", "country", "timezone",
         },
+        "search_premier": {"query", "include_domains", "exclude_domains"},
     }
     for name, fields in expected.items():
         schema = tools[name].metadata.fn_schema
@@ -159,6 +178,16 @@ def test_old_tools_metadata_unchanged() -> None:
             {"latitude": 35.68, "longitude": 139.76, "radius": 500},
             {"places": {"count": 1}, "web_search": {"enable": True},
              "latitude": 35.68, "longitude": 139.76, "radius": 500},
+        ),
+        (
+            "search_premier",
+            PREMIER_OPTIONS,
+            {"include_domains": ["apache.org"], "exclude_domains": ["example.com"]},
+            {
+                **PREMIER_OPTIONS,
+                "include_domains": ["apache.org"],
+                "exclude_domains": ["example.com"],
+            },
         ),
     ],
 )
@@ -335,6 +364,7 @@ def test_names_match_real_sdk_signatures() -> None:
         "business_search": SearchResource.business_search,
         "pulse_search": SearchResource.pulse_search,
         "place_search": PlaceSearchResource.search,
+        "search_premier": SearchResource.search_premier,
     }
     # place_search assembles user_location from its flat location args.
     renamed = {"city": "user_location", "region": "user_location",
@@ -541,6 +571,8 @@ def test_model_visible_description_keeps_instructions() -> None:
         "pulse_search": ['prepend "https://"', "sees no fresh content"],
         "place_search": ["always together", "only with both coordinates",
                          "Pass the caller's location"],
+        "search_premier": ["deeper retrieval and reranking", "use search",
+                           "include_domains"],
     }
     for name, phrases in expected.items():
         for phrase in phrases:
@@ -567,3 +599,180 @@ def test_huge_int_shared_timeout_rejected() -> None:
 def test_huge_int_option_timeout_rejected() -> None:
     with pytest.raises(ValueError, match="news_search_options: timeout"):
         OctenToolSpec(api_key="k", news_search_options={"timeout": 10**400})
+
+
+
+@pytest.mark.parametrize(
+    ("options", "mentions"),
+    [
+        ({"count": 0}, "count"),
+        ({"count": 101}, "count"),
+        ({"result_type": "smart"}, "result_type"),
+        ({"highlight": {"max_tokens": 99}}, "highlight"),
+        ({"full_content": {"max_tokens": 100001}}, "full_content"),
+        ({"full_content": {"enabled": True}}, "full_content"),
+        ({"full_content": {1: True, "enabled": True}}, "full_content"),
+        ({"highlight": {None: 1}}, "highlight"),
+        (
+            {"highlight": octen.HighlightOptions(enable=True, maxtokens=300)},
+            "highlight",
+        ),
+        ({"include_text": ["a"] * 6}, "include_text"),
+        ({"exclude_text": ["x" * 31]}, "exclude_text"),
+        ({"language": ["english"]}, "language"),
+        ({"language": "en"}, "language"),
+        ({"language": [["en"]]}, "language"),
+        ({"time_basis": "indexed"}, "time_basis"),
+        ({"time_range": "last week"}, "time_range"),
+        ({"start_time": "last week"}, "start_time"),
+        ({"end_time": "2025-13-01T00:00:00Z"}, "end_time"),
+        ({"start_time": 20250101}, "start_time"),
+        ({"format": "html"}, "format"),
+        ({"safesearch": "moderate"}, "safesearch"),
+        ({"timeout": 0}, "timeout"),
+    ],
+    ids=lambda v: v if isinstance(v, str) else None,
+)
+def test_premier_invalid_option_raises_at_construction(
+    octen_cls: MagicMock, options: Dict[str, Any], mentions: str
+) -> None:
+    with pytest.raises(ValueError, match=f"search_premier_options.*{mentions}"):
+        _spec(search_premier_options=options)
+    octen_cls.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["query", "include_domains", "exclude_domains", "topic", "num_results", "mode"],
+)
+def test_premier_model_or_unknown_key_rejected_as_option(key: str) -> None:
+    with pytest.raises(
+        ValueError, match=f"search_premier_options does not accept '{key}'"
+    ):
+        _spec(search_premier_options={key: "x"})
+
+
+# RFC 3339 date-time, the "format: date-time" of
+# https://docs.octen.ai/api-reference/search-premier.md
+RFC3339_VALID = [
+    "2025-01-01T00:00:00Z",
+    "2025-01-01T00:00:00.1Z",
+    "2025-01-01T00:00:00.123456Z",
+    "2025-06-30T23:59:59+08:00",
+    "2025-01-01T00:00:00-05:30",
+    "2024-02-29T12:00:00Z",
+]
+RFC3339_INVALID = [
+    "2025-01-01",
+    "2025-01-01T00:00:00",
+    "2025-01-01X00:00:00Z",
+    "2025-01-01 00:00:00Z",
+    "2025-13-01T00:00:00Z",
+    "2025-02-29T00:00:00Z",
+    "2025-01-01T24:00:00Z",
+    "2025-01-01T00:00:00+24:00",
+    "2025-01-01T00:00:00.Z",
+    "2025-01-01T00:00:00Z\n",
+    "\uff12025-01-01T00:00:00Z",
+    "20250101T000000Z",
+    "last week",
+    "2025-01-01t00:00:00Z",
+    "2025-01-01T00:00:00z",
+    "2016-12-31T23:59:60Z",
+]
+
+
+@pytest.mark.parametrize("value", RFC3339_VALID)
+def test_premier_iso_times_accepted(octen_cls: MagicMock, value: str) -> None:
+    _spec(
+        search_premier_options={"start_time": value, "end_time": value}
+    ).search_premier("q")
+    kwargs = _sdk_method(octen_cls, "search_premier").call_args.kwargs
+    assert (kwargs["start_time"], kwargs["end_time"]) == (value, value)
+
+
+@pytest.mark.parametrize("field", ["start_time", "end_time"])
+@pytest.mark.parametrize("value", RFC3339_INVALID)
+def test_premier_non_rfc3339_time_rejected(value: str, field: str) -> None:
+    with pytest.raises(ValueError, match=f"search_premier_options.*{field}"):
+        _spec(search_premier_options={field: value})
+
+
+def test_premier_sdk_option_objects_accepted(octen_cls: MagicMock) -> None:
+    highlight = octen.HighlightOptions(enable=True, max_tokens=300)
+    full_content = octen.FullContentOptions(enable=True, max_tokens=500)
+    spec = _spec(
+        search_premier_options={"highlight": highlight, "full_content": full_content}
+    )
+    spec.search_premier("q")
+    kwargs = _sdk_method(octen_cls, "search_premier").call_args.kwargs
+    assert kwargs["highlight"].max_tokens == 300
+    assert kwargs["full_content"].max_tokens == 500
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"count": 50},
+        {"result_type": "dynamic"},
+        {"full_content": {"enable": True}},
+        {"time_range": "day"},
+        {"language": ["en"]},
+        {"safesearch": "off"},
+        {"timeout": 1},
+    ],
+    ids=lambda e: next(iter(e)),
+)
+def test_premier_model_cannot_pass_developer_options(
+    octen_cls: MagicMock, extra: Dict[str, Any]
+) -> None:
+    tools = {t.metadata.name: t for t in _spec().to_tool_list()}
+    with pytest.raises(TypeError, match=next(iter(extra))):
+        tools["search_premier"].call(query="q", **extra)
+    octen_cls.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("args", "field"),
+    [
+        ({"include_domains": ["a" * 61 + ".com"]}, "include_domains"),
+        ({"exclude_domains": "example.com"}, "exclude_domains"),
+    ],
+)
+def test_premier_bad_domain_returns_error_dict_without_call(
+    octen_cls: MagicMock, args: Dict[str, Any], field: str
+) -> None:
+    result = _spec().search_premier("q", **args)
+    assert set(result) == {"error"}
+    assert field in result["error"]
+    octen_cls.assert_not_called()
+
+
+def test_premier_returns_data_request_id(octen_cls: MagicMock) -> None:
+    data = {"query": "q", "results": [{"title": "t", "url": "u", "highlight": "h"}]}
+    _sdk_method(octen_cls, "search_premier").return_value = _response(
+        data, meta={"result_type": "dynamic", "warning": ""}, request_id="rid-premier"
+    )
+    assert _spec().search_premier("q") == {"data": data, "request_id": "rid-premier"}
+    octen_cls.return_value.search.search.assert_not_called()
+
+
+def test_premier_timeout_spec_level_and_override(octen_cls: MagicMock) -> None:
+    _spec(timeout=10).search_premier("q")
+    _spec(timeout=10, search_premier_options={"timeout": 60}).search_premier("q")
+    calls = _sdk_method(octen_cls, "search_premier").call_args_list
+    assert [c.kwargs["timeout"] for c in calls] == [10, 60]
+
+
+def test_premier_options_deep_copied(octen_cls: MagicMock) -> None:
+    include_text = ["kafka"]
+    highlight = {"enable": True, "max_tokens": 300}
+    spec = _spec(
+        search_premier_options={"include_text": include_text, "highlight": highlight}
+    )
+    include_text.append("later")
+    highlight["max_tokens"] = 5
+    spec.search_premier("q")
+    kwargs = _sdk_method(octen_cls, "search_premier").call_args.kwargs
+    assert kwargs["include_text"] == ["kafka"]
+    assert kwargs["highlight"] == {"enable": True, "max_tokens": 300}

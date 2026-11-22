@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.3.0
+
+### Upgrading from 0.2.x
+
+Existing functions are unchanged: same parameters, same requests, same return
+shapes and errors. Things that do change:
+
+- **`to_tool_list()` now returns eleven tools instead of nine.** An agent built
+  with `OctenToolSpec(...).to_tool_list()` also gets `search_premier` and
+  `extract`, and the model may call them; they have their own pricing. To keep
+  the 0.2.x tool set, pass `spec_functions` to `to_tool_list()` without
+  `"search_premier"` and `"extract"`.
+- **`octen` is upgraded to 0.13.0 or newer.** If your project pins `octen` below
+  0.13.0, dependency resolution fails until you relax that pin.
+
+### Added
+
+- `search_premier`: Web Search Premier, web search with deeper retrieval and
+  reranking for hard-to-find specific facts and pages.
+  - The model sets only `query`, `include_domains` and `exclude_domains`.
+    Result count, `result_type`, highlight / full content, text, language and
+    time filters, `format`, `safesearch`, `include_images` and `timeout` come
+    from the new keyword-only constructor argument `search_premier_options`,
+    checked when the spec is built; `highlight` and `full_content` accept only
+    the `enable` and `max_tokens` keys, `language` only the documented ISO
+    639-1 codes, and `start_time` / `end_time` must be RFC 3339
+    times (e.g. `2025-01-01T00:00:00Z`).
+  - Return shape and error handling are the same as the vertical functions.
+- `extract`: Extract, reads web pages by URL and returns their clean content.
+  - The model sets only `urls` and an optional `query` (highlights instead of
+    full content). `mode`, `format`, `max_age_seconds`, `url_timeout` (the
+    API's per-URL budget, 1-60), `include_images` / `include_videos` /
+    `include_audio`, `include_links`, `timeout` and `max_urls` come from the
+    new keyword-only constructor argument `extract_options`, checked when the
+    spec is built.
+  - `timeout` is the HTTP request timeout passed to the SDK, as in the other
+    options dicts. Left unset, it is the spec-level `timeout`, else
+    `url_timeout` (or 30) plus 90 seconds. It applies per attempt: the SDK
+    still retries 408, 429, 500, 502, 503 and 504 responses, so a call can
+    take longer.
+  - `max_urls` (1-20, default 5) caps the URLs per call. A call with more, or
+    with none, sends no request and tells the model the limit.
+  - `data` keeps every result, including failed URLs with their
+    `error_message`; match results to inputs by each item's `url`, not by
+    position. Content is not truncated. Otherwise the return shape and error
+    handling are the same as the vertical functions.
+
+### Changed
+
+- Requires `octen>=0.13.0,<1` (the release that adds `search_premier`).
+
 ## 0.2.0
 
 ### Upgrading from 0.1.x

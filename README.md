@@ -113,6 +113,55 @@ results = tool.search(
 )
 ```
 
+## Web Search Premier
+
+`search_premier` searches the web with deeper retrieval and reranking, for questions that need the exact page holding the answer: a specific fact, a detail deep inside a page, a niche document or a named report. It takes the same request options and returns the same response shape as Web Search; for low-latency lookups use `search` instead. It follows the same design as the vertical functions below: the model sets only `query`, `include_domains` and `exclude_domains`, and everything else comes from `search_premier_options`.
+
+```python
+tool = OctenToolSpec(
+    search_premier_options={"count": 5, "highlight": {"enable": True, "max_tokens": 1024}},
+)
+
+result = tool.search_premier("Kafka default retention period for topics")
+for r in result["data"]["results"]:
+    print(r["title"], r["url"])
+```
+
+`search_premier_options` accepts `count` (1-100), `result_type` (`"standard"` or `"dynamic"`), `highlight` and `full_content` (only the `enable` and `max_tokens` keys), `include_text` and `exclude_text` (up to 5, 30 characters each), `language` (ISO 639-1 codes), `time_basis`, `time_range`, `start_time` and `end_time` (RFC 3339, e.g. `2025-01-01T00:00:00Z`), `format`, `safesearch`, `include_images` and `timeout`. `result_type="dynamic"` returns only relevant results, up to `count`, and adjusts the highlight length per result. Return value and errors are as described for the vertical functions below.
+
+## Extract
+
+`extract` reads web pages by URL and returns their clean content. Match each result to its input by the item's `url` field, not by position. The model sets only `urls` and, optionally, `query`: with a query each result has `highlights` (the passages relevant to it) instead of `full_content`. Everything that changes cost or response size comes from `extract_options`.
+
+```python
+tool = OctenToolSpec(
+    extract_options={"max_urls": 10, "mode": "auto", "url_timeout": 60},
+)
+
+result = tool.extract(["https://example.com", "https://docs.octen.ai/overview/welcome"])
+for item in result["data"]["results"]:
+    if item["status"] == "success":
+        print(item["url"], item.get("title"), len(item["full_content"]))
+    else:
+        print(item["url"], "failed:", item["error_message"])
+```
+
+| Option | Values | Default (when left out) |
+|---|---|---|
+| `max_urls` | URLs the model may pass per call, 1-20 | 5 |
+| `mode` | `"standard"`, `"advanced"` or `"auto"` | not sent; the API uses `standard` |
+| `format` | `"markdown"` or `"text"` | not sent; the API uses `markdown` |
+| `max_age_seconds` | cache age before a page is fetched again, 300-31536000 | not sent; the API uses 86400 |
+| `url_timeout` | the API's per-URL fetch timeout in seconds, 1-60; sent as `timeout` | not sent; the API uses 30 |
+| `include_images`, `include_videos`, `include_audio` | `True` to return media URLs found on each page | not sent |
+| `include_links` | `{"scope": "prefer_internal" \| "prefer_external", "max_links": 1-1000}`; `{}` uses the API defaults | not sent |
+| `timeout` | HTTP request timeout passed to the SDK, in seconds, per attempt | spec-level `timeout`, else `url_timeout` (or 30) + 90 |
+
+- As in the other options dicts, `timeout` is the HTTP request timeout passed to the SDK and overrides the spec-level `timeout`. The API's per-URL budget is `url_timeout`. When neither `timeout` is set, each request waits up to `url_timeout` (or the API default of 30) plus 90 seconds, since a batch, and `mode="advanced"` or `"auto"`, can take longer than one URL's budget. It is not a deadline for the whole call: the SDK still retries 408, 429, 500, 502, 503 and 504 responses (see [Retries](#retries)), so a call can take longer across attempts.
+- A call with more URLs than `max_urls`, or with none, sends no request: the model gets `{"error": ...}` with the limit and is told to split the URLs into several calls. URLs longer than 2048 characters, empty URLs and a `query` over 500 characters are also returned to the model before any request.
+- `data` keeps every result the API returns, failed ones included; match results to inputs by each item's `url`, not by position. A URL that could not be read has `status: "failed"` and an `error_message`, and is not billed; the others still return content. Content is not truncated. Each successful item has `resolved_mode`, the mode it was billed at; with `verbose=True` the request's usage counts (`successful_by_mode`) are printed.
+- Errors are split as described for the vertical functions below.
+
 ## Broad, News, Business, Pulse and Place Search
 
 These five functions give the model only the query and filters. Billing-related options and limits, such as result counts, content options and Broad Search's `max_queries`, are set by you when you build the spec. They bound the cost of a call rather than fix it: Broad Search, for example, is billed per sub-query, and `max_queries` is an upper limit; how many sub-queries a call actually runs depends on the query.
@@ -135,6 +184,8 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 | `business_search` | `query`, `include_domains`, `exclude_domains`, `time_range`, `language` | `count`, `highlight`, `full_content`, `entities`, `timeout` |
 | `pulse_search` | `query` | `count`, `highlight`, `full_content`, `mode`, `timeout` |
 | `place_search` | `query`, `latitude`, `longitude`, `radius`, `city`, `region`, `country`, `timezone` | `places`, `web_search`, `timeout` |
+| `search_premier` | `query`, `include_domains`, `exclude_domains` | `count`, `result_type`, `highlight`, `full_content`, `include_text`, `exclude_text`, `language`, `time_basis`, `time_range`, `start_time`, `end_time`, `format`, `safesearch`, `include_images`, `timeout` |
+| `extract` | `urls`, `query` | `max_urls`, `mode`, `format`, `max_age_seconds`, `url_timeout`, `include_images`, `include_videos`, `include_audio`, `include_links`, `timeout` (see [Extract](#extract)) |
 
 - Options you leave out are not sent, so the API defaults apply. Values are passed to the [`octen`](https://pypi.org/project/octen/) SDK as-is (`dict`s or the SDK's option models). They are checked when the spec is built: a key that is not listed for a function, or a value the SDK would reject (for example `count=1000`), raises `ValueError`. `timeout` in an options dict overrides the spec-level `timeout` for that function.
 - `time_range` is one of `day`, `week`, `month`, `year` (or `d`, `w`, `m`, `y`). `language` is a list of ISO 639-1 codes.
@@ -175,6 +226,10 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 
 - `place_search`: Real-world places as cards with address, opening hours, rating and distance.
 
+- `search_premier`: Web search with deeper retrieval and reranking, for hard-to-find specific facts and pages.
+
+- `extract`: Read web pages by URL and return their clean content, with failed URLs reported per URL.
+
 - `current_date`: Utility for the agent to get today's date (useful for time-filtered searches).
 
 ## Configuration
@@ -191,6 +246,8 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 | `business_search_options` | `dict` | `None` | Keyword-only. Options for `business_search` |
 | `pulse_search_options` | `dict` | `None` | Keyword-only. Options for `pulse_search` |
 | `place_search_options` | `dict` | `None` | Keyword-only. Options for `place_search` |
+| `search_premier_options` | `dict` | `None` | Keyword-only. Options for `search_premier` |
+| `extract_options` | `dict` | `None` | Keyword-only. Options for `extract` |
 
 ### Retries
 
