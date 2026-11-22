@@ -532,6 +532,7 @@ def test_live_design_search_options_and_group_follow_up() -> None:
     print(f"control snippet={[bool(i.get('snippet')) for i in control['images']]} "
           f"design_facts={[bool(i.get('design_facts')) for i in control['images']]}")
     assert not any(r.get("full_content") for r in control["results"]), control["results"]
+    assert 0 < len(control["images"]) <= 3, control
 
     off = {
         "images": {"count": 3, "design_facts": False, "snippet": {"enable": False}},
@@ -544,6 +545,7 @@ def test_live_design_search_options_and_group_follow_up() -> None:
     by_url = {_base_url(i): i for i in control["images"]}
     matched = [(by_url[_base_url(i)], i) for i in turned_off["images"] if _base_url(i) in by_url]
     print(f"matched images={len(matched)} of {len(turned_off['images'])}")
+    assert 0 < len(turned_off["images"]) <= 3, turned_off
     assert any(before.get("snippet") for before, _ in matched), matched
     assert any(before.get("design_facts") for before, _ in matched), matched
     assert not any(i.get("design_facts") or i.get("snippet") for i in turned_off["images"])
@@ -554,18 +556,24 @@ def test_live_design_search_options_and_group_follow_up() -> None:
     assert grouped, "no image from a group of 3 or more: pick another DESIGN_QUERY"
     seed = grouped[0]
     group_id, position, total = (seed["group"][k] for k in ("group_id", "position", "total"))
+    requested = 100
     follow = _check_design(
         "design group_id",
-        _spec(design_search_options={"images": {"count": 100}}).design_search(group_id=group_id),
+        _spec(design_search_options={"images": {"count": requested}}).design_search(
+            group_id=group_id
+        ),
     )
     members = follow["images"]
+    # The ordered prefix of the group, up to the requested image count.
+    expected = min(total, requested)
     ids = [i["group"]["group_id"] for i in members]
     positions = [i["group"]["position"] for i in members]
     print(f"group total={total} seed position={position} positions={positions}")
-    assert ids == [group_id] * total, ids
-    assert positions == list(range(1, total + 1)), positions
-    same_slot = [i for i in members if i["group"]["position"] == position]
-    assert [_base_url(i) for i in same_slot] == [_base_url(seed)], (same_slot, seed)
+    assert ids == [group_id] * expected, ids
+    assert positions == list(range(1, expected + 1)), positions
+    if position <= expected:
+        same_slot = [i for i in members if i["group"]["position"] == position]
+        assert [_base_url(i) for i in same_slot] == [_base_url(seed)], (same_slot, seed)
 
 
 def _design_web(name: str, web_search: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -575,7 +583,9 @@ def _design_web(name: str, web_search: Optional[Dict[str, Any]] = None) -> Dict[
     return _check_design(name, _spec(design_search_options=options).design_search(DESIGN_QUERY))
 
 
-def test_live_design_search_web_toggle_cap_and_domains() -> None:
+def test_live_design_search_web_toggle_cap_and_domains(mocker: Any) -> None:
+    from octen.core.http_client import HTTPClient
+
     off = _design_web("design web off", {"enable": False})
     assert not off.get("results"), off
     assert off["images"], off
@@ -587,6 +597,13 @@ def test_live_design_search_web_toggle_cap_and_domains() -> None:
     print(f"control web={len(control['results'])} capped web={len(capped['results'])}")
     assert len(control["results"]) > 2, control
     assert 0 < len(capped["results"]) <= 2, capped
+
+    assert any(r.get("highlight") for r in control["results"]), control["results"]
+    spy = mocker.spy(HTTPClient, "request")
+    plain = _design_web("design web highlight off", {"highlight": {"enable": False}})
+    print(f"highlight off body={spy.call_args.kwargs['json']['web_search']}")
+    assert spy.call_args.kwargs["json"]["web_search"]["highlight"]["enable"] is False
+    assert plain["results"] and not any(r.get("highlight") for r in plain["results"]), plain
 
     domain = hosts[0][4:] if hosts[0].startswith("www.") else hosts[0]
     filtered = _design_web("design web exclude_domains", {"exclude_domains": [domain]})
