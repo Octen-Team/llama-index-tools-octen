@@ -372,10 +372,12 @@ def _is_https_url(value: str) -> bool:
     # whitespace and controls are checked first; anything else is left to the parser.
     if any(c == " " or ord(c) < 0x20 or ord(c) == 0x7F for c in value):
         return False
-    if _BAD_PERCENT.search(value):  # each % must start a two-hex-digit escape
-        return False
     try:
         parsed = urlparse(value)
+        # Escapes are checked in the host and path only: the API's URL parser keeps the
+        # query and fragment raw, so a bare % there is accepted.
+        if _BAD_PERCENT.search(parsed.netloc + parsed.path + parsed.params):
+            return False
         parsed.port  # raises on a non-numeric or out-of-range port
         return (
             parsed.scheme.lower() == "https"
@@ -435,17 +437,19 @@ def _sanitized(exc: Exception) -> Exception:
         # A new instance, not a copy: notes and other attributes may carry the URL.
         clean = type(exc).__new__(type(exc))
         clean.args = (message,)
+        clean.message = message  # type: ignore[attr-defined]
+        for name in _SAFE_ERROR_FIELDS:
+            value = getattr(exc, name, None)
+            if value is None or isinstance(value, (bool, int, float, str)):
+                if hasattr(exc, name):
+                    setattr(clean, name, value)
+        if isinstance(exc, OctenAPIError):
+            clean.response_data = None  # type: ignore[attr-defined]
+        if isinstance(exc, OctenValidationError):
+            clean.errors = []  # type: ignore[attr-defined]
     except Exception:
+        # A class that cannot be rebuilt (e.g. its __new__ needs arguments).
         return OctenError(message)
-    clean.message = message  # type: ignore[attr-defined]
-    for name in _SAFE_ERROR_FIELDS:
-        value = getattr(exc, name, None)
-        if hasattr(exc, name) and (value is None or isinstance(value, (bool, int, float, str))):
-            setattr(clean, name, value)
-    if isinstance(exc, OctenAPIError):
-        clean.response_data = None  # type: ignore[attr-defined]
-    if isinstance(exc, OctenValidationError):
-        clean.errors = []  # type: ignore[attr-defined]
     return clean
 
 

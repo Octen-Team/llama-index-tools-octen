@@ -253,6 +253,34 @@ def test_image_url_with_surrounding_ascii_whitespace_rejected(octen_cls: MagicMo
     octen_cls.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/photo.png?label=50%",
+        "https://example.com/photo.png?q=%zz&r=%2",
+        "https://example.com/photo.png#50%",
+    ],
+)
+def test_percent_in_query_or_fragment_sent_unchanged(octen_cls: MagicMock, url: str) -> None:
+    # The API's URL parser keeps the query and fragment raw; only host and path escapes count.
+    _spec().image_search(image_url=url)
+    _sdk(octen_cls, "image_search").assert_called_once_with(image_url=url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://exa%zzmple.com/photo.png",
+        "https://example.com/50%/photo.png",
+        "https://example.com/photo%2.png?label=ok",
+        "https://example.com/photo.png;v=%zz",
+    ],
+)
+def test_bad_percent_in_host_or_path_rejected(octen_cls: MagicMock, url: str) -> None:
+    assert "https URL with a domain name" in _spec().image_search(image_url=url)["error"]
+    octen_cls.assert_not_called()
+
+
 def test_non_ascii_path_characters_left_to_the_parser(octen_cls: MagicMock) -> None:
     url = "https://example.com/caf\u00e9\u00a0menu.png"
     _spec().image_search(image_url=url)
@@ -446,7 +474,6 @@ def test_design_wire_body() -> None:
         ({"image_url": "https://exa%zzmple.com/a.png"}, "https URL with a domain name"),
         ({"image_url": "https://exa%2mple.com/a.png"}, "https URL with a domain name"),
         ({"image_url": "https://example.com/a%2.png"}, "https URL with a domain name"),
-        ({"image_url": "https://example.com/a.png?x=%"}, "https URL with a domain name"),
         ({"image_url": "https://a@b@example.com/a.png"}, "https URL with a domain name"),
         ({"image_url": "https://u[1]@example.com/a.png"}, "https URL with a domain name"),
         ({"image_url": "https://[::1/a.png"}, "https URL with a domain name"),
@@ -1079,6 +1106,55 @@ def test_image_url_raised_errors_are_sanitized(
     for text in rendered:
         assert "SECRET" not in text and "cdn.example.com" not in text, text
     assert "image URL" in str(error)
+
+
+class _NeedsArgs(Exception):
+    def __new__(cls, first: str, second: str) -> "_NeedsArgs":
+        return super().__new__(cls, first, second)
+
+
+class _Slotted(Exception):
+    __slots__ = ()
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError(name)
+
+
+class _ArgsOnly(Exception):
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name != "args":
+            raise AttributeError(name)
+        super().__setattr__(name, value)
+
+
+def _exotic_errors() -> List[Exception]:
+    errors: List[Exception] = [
+        _NeedsArgs(f"bad {SIGNED_URL}", "x"), _Slotted(SIGNED_URL), _ArgsOnly(SIGNED_URL)
+    ]
+    group = getattr(__builtins__ if isinstance(__builtins__, dict) else __builtins__.__dict__,
+                    "get")("ExceptionGroup")
+    if group is not None:  # Python 3.11+
+        errors.append(group(f"failed {SIGNED_URL}", [ValueError(SIGNED_URL)]))
+    return errors
+
+
+@pytest.mark.parametrize("exc", _exotic_errors(), ids=lambda e: type(e).__name__)
+def test_sanitizing_an_exotic_exception_falls_back_cleanly(
+    octen_cls: MagicMock, caplog: Any, exc: Exception
+) -> None:
+    import traceback
+
+    _sdk(octen_cls, "image_search").side_effect = exc
+    with caplog.at_level(logging.DEBUG, logger="llama_index.tools.octen"):
+        with pytest.raises(Exception) as raised:
+            _spec().image_search(image_url=SIGNED_URL)
+    error = raised.value
+    assert isinstance(error, octen.OctenError), type(error)
+    assert error.__cause__ is None and error.__context__ is None
+    formatted = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+    for text in (str(error), repr(error), formatted, caplog.text):
+        assert "SECRET" not in text and "cdn.example.com" not in text, text
+    assert type(exc).__name__ in str(error)
 
 
 def test_text_query_raised_errors_unchanged(octen_cls: MagicMock) -> None:
