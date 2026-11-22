@@ -52,7 +52,10 @@ has both new endpoints. One thing changes:
     neither is returned to the model before any request. With
     `images={"enable": False}` the description and argument schema offer no
     `group_id` and require `query`; a `group_id` call without `query` is returned
-    to the model, and one with `query` does not forward `group_id`.
+    to the model, and one with `query` does not forward `group_id`. With
+    `web_search={"enable": False}` the description promises no web results;
+    turning off both raises `ValueError`, as does a `web_search` time range that
+    ends before it starts.
   - `images` (`enable`, `count` 1-100, `design_facts`, and `snippet` with
     `enable` and `max_tokens` 100-100000; `group_id` is not accepted here),
     `web_search` (`enable`, `count`, `highlight`, `full_content`, domain,

@@ -853,8 +853,106 @@ def test_authority_checks_ip_literals_itself() -> None:
     from llama_index.tools.octen.base import _valid_authority
 
     assert _valid_authority("[2001:db8::1]:443") and _valid_authority("u@[::1]")
-    for netloc in ("[1:2:3]", "[12345::]", "[::1", "[]"):
+    for netloc in ("[1:2:3]", "[12345::]", "[::1", "[]", "[2001:4860::1]junk:443",
+                   "[::1]:44a", "[::1]x", "u@[::1]@x"):
         assert not _valid_authority(netloc), netloc
+
+
+# An Arabic label ending in an ASCII digit: valid under IDNA2008, rejected by Python's
+# IDNA2003 "idna" codec (BIDI rule 3), and its punycode form.
+ARABIC_LABEL = "\u0627\u062e\u062a\u0628\u0627\u0631" + "1"
+ARABIC_PUNYCODE = "xn--1-ymcadjxy"
+
+
+def test_host_validation_does_not_reject_valid_hosts(octen_cls: MagicMock) -> None:
+    for host in (f"{ARABIC_LABEL}.example", f"{ARABIC_PUNYCODE}.example",
+                 "cafe\u0301.example", "ex{a}mple.com", "a|b^c.example", "a_b~c.example"):
+        url = f"https://{host}/a.png"
+        assert "error" not in _spec().image_search(image_url=url), url
+    assert _sdk(octen_cls, "image_search").call_count == 6
+
+
+@pytest.mark.parametrize(
+    "host", ["exa\\mple.com", "ex<a>mple.com", 'exa"mple.com', "exa'mple.com",
+             "exa`mple.com", "exa%2mple.com", "ex]ample.com", "ex[ample.com"],
+)
+def test_host_validation_rejects_characters_that_cannot_be_in_a_host(
+    octen_cls: MagicMock, host: str
+) -> None:
+    result = _spec().image_search(image_url=f"https://{host}/a.png")
+    assert "http(s)" in result["error"]
+    octen_cls.assert_not_called()
+
+
+def test_sanitized_error_drops_notes_and_other_attributes(octen_cls: MagicMock) -> None:
+    import traceback
+
+    exc = OctenAPIError("forbidden", status_code=403, request_id="rid-403")
+    # add_note (3.11+) stores notes in __notes__; set it directly to cover 3.10.
+    exc.__notes__ = [f"while fetching {SIGNED_URL}"]
+    exc.code = 403
+    exc.extra_url = SIGNED_URL
+    _sdk(octen_cls, "image_search").side_effect = exc
+    with pytest.raises(OctenAPIError) as raised:
+        _spec().image_search(image_url=SIGNED_URL)
+    error = raised.value
+    assert (error.status_code, error.request_id, error.code) == (403, "rid-403", 403)
+    assert not hasattr(error, "__notes__") and not hasattr(error, "extra_url")
+    formatted = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+    for text in (str(error), repr(error), formatted, str(vars(error))):
+        assert "SECRET" not in text and "cdn.example.com" not in text, text
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        ("2025-06-01T00:00:00Z", "2025-01-01T00:00:00Z"),
+        ("2025-01-01T08:00:00+08:00", "2024-12-31T23:59:59Z"),
+        ("2025-01-01T00:00:00.5Z", "2025-01-01T00:00:00.4Z"),
+    ],
+)
+def test_design_reversed_time_range_rejected(start: str, end: str) -> None:
+    with pytest.raises(ValueError, match="design_search_options.*end_time.*before.*start_time"):
+        _spec(design_search_options={"web_search": {"start_time": start, "end_time": end}})
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        ("2025-01-01T00:00:00Z", "2025-01-01T00:00:00Z"),
+        ("2025-01-01T08:00:00+08:00", "2025-01-01T00:00:00Z"),
+        ("2025-01-01T00:00:00Z", "2025-06-30T23:59:59+08:00"),
+    ],
+)
+def test_design_ordered_time_range_accepted(start: str, end: str) -> None:
+    _spec(design_search_options={"web_search": {"start_time": start, "end_time": end}})
+
+
+WEB_OFF = {"design_search_options": {"web_search": {"enable": False}}}
+
+
+def test_design_description_follows_web_switch() -> None:
+    on = _tools()["design_search"].metadata.description
+    assert "Web results on the same query come back alongside" in on
+    off = _tools(**WEB_OFF)["design_search"].metadata
+    assert "web result" not in off.description.lower()
+    assert "call again with that group_id" in off.description
+    off.to_openai_tool()
+    images_off = _tools(**IMAGES_OFF)["design_search"].metadata.description
+    assert "screenshot" not in images_off and "group_id is not available" in images_off
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"images": {"enable": False}, "web_search": {"enable": False}},
+        {"images": octen.DesignImageOptions(enable=False),
+         "web_search": octen.DesignWebSearchOptions(enable=False)},
+    ],
+)
+def test_design_both_switches_off_rejected(options: Dict[str, Any]) -> None:
+    with pytest.raises(ValueError, match="design_search_options.*images.*web_search"):
+        _spec(design_search_options=options)
 
 
 def test_image_url_accepts_authority_forms(octen_cls: MagicMock) -> None:

@@ -299,8 +299,8 @@ _DESIGN_SEARCH_DESCRIPTION = (
     "Find design references: each image result is a screenshot of a web page, page "
     "section, app screen or slide (its type), with a title, a description, the image "
     "url, source_page (not for app screens) and, when returned, its design values "
-    "(design_facts: colors, fonts, font sizes) and reusable HTML code (snippet). Web "
-    "results on the same query come back alongside. Use it when designing or restyling "
+    "(design_facts: colors, fonts, font sizes) and reusable HTML code (snippet).{web} "
+    "Use it when designing or restyling "
     "a UI, a landing page section or a slide deck and you want real examples to follow; "
     "for general photos or pictures use image_search. A web_section or slide result "
     "carries a group (group_id, name, position, total) for its web page or deck: call "
@@ -333,7 +333,7 @@ def _blank(value: Optional[str]) -> bool:
 
 # RFC 3986 authority: [userinfo "@"] host [":" port]. Non-ASCII is allowed in names
 # for internationalized hosts; an IP literal is checked with ipaddress.
-_NAME = r"(?:[A-Za-z0-9\-._~!$&'()*+,;=\u0080-\U0010FFFF]|%[0-9A-Fa-f]{2})"
+_NAME = r"(?:[^\s\x00-\x1f\x7f\\<>\"'`@\[\]:/?#%]|%[0-9A-Fa-f]{2})"
 _AUTHORITY = re.compile(
     rf"(?:(?:{_NAME}|:)*@)?(?:{_NAME}+|\[(?P<ip>[0-9A-Fa-f:.]+)\])(?::[0-9]*)?"
 )
@@ -400,9 +400,14 @@ def _image_url_failure(what: str) -> str:
     )
 
 
+# Metadata kept on a sanitized exception; free text never is.
+_SAFE_ERROR_FIELDS = ("status_code", "request_id", "code", "timeout", "request_sent",
+                      "retry_after")
+
+
 def _sanitized(exc: Exception) -> Exception:
     """The same exception class, status and request id, without upstream text or body."""
-    from octen import OctenError
+    from octen import OctenAPIError, OctenError, OctenValidationError
 
     status = getattr(exc, "status_code", None)
     request_id = getattr(exc, "request_id", None)
@@ -411,13 +416,20 @@ def _sanitized(exc: Exception) -> Exception:
         what += f", request_id {request_id}"
     message = _image_url_failure(what)
     try:
-        clean = copy.copy(exc)
+        # A new instance, not a copy: notes and other attributes may carry the URL.
+        clean = type(exc).__new__(type(exc))
+        clean.args = (message,)
     except Exception:
         return OctenError(message)
-    clean.args = (message,)
-    for name, value in (("message", message), ("response_data", None), ("errors", [])):
-        if hasattr(clean, name):
+    clean.message = message  # type: ignore[attr-defined]
+    for name in _SAFE_ERROR_FIELDS:
+        value = getattr(exc, name, None)
+        if hasattr(exc, name) and (value is None or isinstance(value, (bool, int, float, str))):
             setattr(clean, name, value)
+    if isinstance(exc, OctenAPIError):
+        clean.response_data = None  # type: ignore[attr-defined]
+    if isinstance(exc, OctenValidationError):
+        clean.errors = []  # type: ignore[attr-defined]
     return clean
 
 
@@ -728,6 +740,39 @@ def _check_design_options(options: Dict[str, Any]) -> None:
             _check_premier_options(web_search)
         except ValueError as exc:
             raise ValueError(f"{name} has an invalid value: web_search.{exc}") from None
+        start, end = web_search.get("start_time"), web_search.get("end_time")
+        if start is not None and end is not None and _instant(end) < _instant(start):
+            raise ValueError(
+                f"{name} has an invalid value: web_search.end_time {end!r} is before "
+                f"start_time {start!r}"
+            )
+    if (
+        _as_dict(images).get("enable") is False
+        and _as_dict(web_search).get("enable") is False
+    ):
+        raise ValueError(
+            f"{name} turns off both images and web_search, so design_search would "
+            "return nothing; leave at least one of them enabled"
+        )
+
+
+def _instant(value: str) -> datetime.datetime:
+    """An RFC 3339 time already checked by _is_rfc3339, as an aware datetime."""
+    match = _RFC3339.fullmatch(value)
+    if match is None:
+        raise ValueError(f"not an RFC 3339 time: {value!r}")
+    year, month, day, hour, minute, second, off_hour, off_minute = match.groups()
+    fraction = re.search(r"\.(\d+)", value[19:])
+    micro = int((fraction.group(1) + "000000")[:6]) if fraction else 0
+    if off_hour is None:
+        offset = datetime.timedelta(0)
+    else:
+        sign = -1 if value[-6] == "-" else 1
+        offset = sign * datetime.timedelta(hours=int(off_hour), minutes=int(off_minute))
+    return datetime.datetime(
+        int(year), int(month), int(day), int(hour), int(minute), int(second), micro,
+        tzinfo=datetime.timezone(offset),
+    )
 
 
 def _as_dict(value: Any) -> Dict[str, Any]:
@@ -896,7 +941,11 @@ class OctenToolSpec(BaseToolSpec):
         if fn_name == "design_search":
             images = _as_dict(self._options["design_search_options"].get("images"))
             limit = images.get("count") or _DESIGN_DEFAULT_IMAGE_COUNT
-            description = _DESIGN_SEARCH_DESCRIPTION.format(limit=limit)
+            web_off = _as_dict(self._options["design_search_options"].get("web_search")).get(
+                "enable"
+            ) is False
+            web = "" if web_off else " Web results on the same query come back alongside."
+            description = _DESIGN_SEARCH_DESCRIPTION.format(limit=limit, web=web)
             return ToolMetadata(name=fn_name, description=description, fn_schema=_DesignSearchArgs)
         model_facing = _MODEL_FACING.get(fn_name)
         if model_facing is None:
