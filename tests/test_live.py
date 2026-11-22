@@ -8,7 +8,7 @@ under test and same-input controls) with a small count or one to three URLs.
 
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -349,6 +349,38 @@ def test_live_extract_mode_advanced_with_control(monkeypatch: Any) -> None:
         billed = response.successful_by_mode
         assert billed[f"{item['resolved_mode']}_urls"] == 1, billed
         assert sum(billed.values()) == 1, billed
+
+
+def test_live_extract_include_images_with_control() -> None:
+    # The flagged call goes first, so a failure there costs one billed URL.
+    url = ["https://octen.ai/"]
+    flagged = _items(
+        "extract images", _spec(extract_options={"include_images": True}).extract(url)
+    )[0]
+    images = flagged.get("images") or []
+    print(f"images={len(images)} first={images[:1]}")
+    assert images and all(isinstance(i, dict) and i.get("url") for i in images), flagged
+    control = _items("extract images control", _spec().extract(url))[0]
+    assert control["status"] == "success" and not control.get("images"), control
+
+
+def test_live_extract_max_age_seconds_with_control() -> None:
+    # time_last_crawled is when Octen last crawled the URL; the default cache window
+    # is 86400 s, so the control may return an older crawl.
+    url = [EXTRACT_DOC]
+    control = _items("extract cache control", _spec().extract(url))[0]
+    print(f"control time_last_crawled={control.get('time_last_crawled')}")
+    sent = datetime.now(timezone.utc)
+    fresh = _items(
+        "extract max_age 300", _spec(extract_options={"max_age_seconds": 300}).extract(url)
+    )[0]
+    received = datetime.now(timezone.utc)
+    crawled = _ts(fresh.get("time_last_crawled"))
+    print(f"max_age time_last_crawled={crawled} sent={sent} received={received}")
+    # 60 s margin for clock skew between this machine and the server.
+    assert crawled is not None, fresh
+    assert (sent - crawled).total_seconds() <= 300 + 60, (crawled, sent)
+    assert (crawled - received).total_seconds() <= 60, (crawled, received)
 
 
 def test_live_extract_cap_rejects_without_request(mocker: Any) -> None:
