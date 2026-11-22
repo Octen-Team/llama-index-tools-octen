@@ -281,8 +281,10 @@ def _items(name: str, result: Dict[str, Any]) -> List[Dict[str, Any]]:
 def test_live_extract_content_and_per_url_failure() -> None:
     urls = ["https://example.com", EXTRACT_DOC, FAILING_URL]
     items = _items("extract mixed", _spec().extract(urls))
-    assert [i["url"] for i in items] == urls, items
-    example, doc, failed = items
+    # Matched by url, not position: the API reference does not promise an order.
+    by_url = {i["url"]: i for i in items}
+    assert sorted(by_url) == sorted(urls) and len(items) == len(urls), items
+    example, doc, failed = (by_url[u] for u in urls)
     assert example["status"] == doc["status"] == "success"
     assert "documentation examples" in example["full_content"]
     assert "Failed URLs are not billed" in doc["full_content"]
