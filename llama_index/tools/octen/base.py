@@ -250,7 +250,8 @@ class _ImageSearchArgs(BaseModel):
     )
     image_url: Optional[str] = Field(
         default=None,
-        description="Public http(s) URL of an image already on the web, to find "
+        description="Public https URL with a domain name (no IP address) of an image "
+        "already on the web, to find "
         "visually similar images. Exactly one of query or image_url, never both.",
     )
     include_domains: Optional[List[str]] = Field(
@@ -286,8 +287,8 @@ _IMAGE_SEARCH_DESCRIPTION = (
     "Find images on the web by a text query or by a reference image: returns ranked "
     "images, each with its title, image url, source_page (the page hosting it), a "
     "description of its content, and its width and height. Pass exactly one of query "
-    "(text describing the images) or image_url (a public URL of a picture already on "
-    "the web, to find visually similar ones), never both. Use it when the user wants "
+    "(text describing the images) or image_url (a public https URL, with a domain name, "
+    "of a picture already on the web, to find visually similar ones), never both. Use it when the user wants "
     "pictures, photos, diagrams, screenshots or other visual references; not for "
     "general text web search (use search) or UI, web page and slide design references "
     "(use design_search). Show an image by its url and cite its source_page. "
@@ -332,33 +333,34 @@ def _blank(value: Optional[str]) -> bool:
     return value is None or not value.strip()
 
 
-# RFC 3986 authority: [userinfo "@"] host [":" port]. Non-ASCII is allowed in names
-# for internationalized hosts; an IP literal is checked with ipaddress.
-_NAME = r"(?:[^\s\x00-\x1f\x7f\\<>\"'`@\[\]:/?#%]|%[0-9A-Fa-f]{2})"
+# RFC 3986 authority: [userinfo "@"] host [":" port]. The API takes only a domain-name
+# host, so there is no bracketed IP form; non-ASCII is allowed for internationalized names.
+_NAME = r"(?:[^ \x00-\x1f\x7f\\<>\"'`@\[\]:/?#%]|%[0-9A-Fa-f]{2})"
 # RFC 3986 userinfo: unreserved, sub-delims (incl. "'"), ":" and %-escapes; non-ASCII too.
 _USERINFO = r"(?:[A-Za-z0-9\-._~!$&'()*+,;=:\u0080-\U0010FFFF]|%[0-9A-Fa-f]{2})*"
 _AUTHORITY = re.compile(
-    rf"(?:{_USERINFO}@)?(?:{_NAME}+|\[(?P<ip>[0-9A-Fa-f:.]+)\])(?::[0-9]*)?"
+    rf"(?:{_USERINFO}@)?{_NAME}+(?::[0-9]*)?"
 )
 _BAD_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
 
 def _valid_authority(netloc: str) -> bool:
-    match = _AUTHORITY.fullmatch(netloc)
-    if match is None:
+    return _AUTHORITY.fullmatch(netloc) is not None
+
+
+def _is_ip_address(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
         return False
-    if match.group("ip") is not None:
-        try:
-            ipaddress.IPv6Address(match.group("ip"))
-        except ValueError:
-            return False
     return True
 
 
-def _is_http_url(value: str) -> bool:
-    # urlparse silently drops tabs, newlines and leading control characters, so they
-    # are checked first.
-    if any(c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F for c in value):
+def _is_https_url(value: str) -> bool:
+    """The API's rule: an absolute https URL whose host is a domain name, not an IP."""
+    # urlparse silently drops tabs, newlines and leading control characters, so ASCII
+    # whitespace and controls are checked first; anything else is left to the parser.
+    if any(c == " " or ord(c) < 0x20 or ord(c) == 0x7F for c in value):
         return False
     if _BAD_PERCENT.search(value):  # each % must start a two-hex-digit escape
         return False
@@ -366,9 +368,10 @@ def _is_http_url(value: str) -> bool:
         parsed = urlparse(value)
         parsed.port  # raises on a non-numeric or out-of-range port
         return (
-            parsed.scheme.lower() in ("http", "https")
+            parsed.scheme.lower() == "https"
             and bool(parsed.hostname)
             and _valid_authority(parsed.netloc)
+            and not _is_ip_address(str(parsed.hostname))
         )
     except ValueError:  # e.g. "Invalid IPv6 URL" for an unclosed bracket
         return False
@@ -759,10 +762,11 @@ def _check_design_options(options: Dict[str, Any]) -> None:
         )
 
 
-def _instant(value: str) -> Tuple[datetime.datetime, decimal.Decimal]:
+def _instant(value: str) -> Tuple[int, decimal.Decimal]:
     """An RFC 3339 time already checked by _is_rfc3339, as (UTC whole second, fraction).
 
-    The fraction is kept in full, since datetime keeps only microseconds.
+    Plain integers, so an offset near year 1 or 9999 cannot overflow datetime, and the
+    fraction is kept in full rather than cut to microseconds.
     """
     match = _RFC3339.fullmatch(value)
     if match is None:
@@ -774,10 +778,9 @@ def _instant(value: str) -> Tuple[datetime.datetime, decimal.Decimal]:
     else:
         sign = -1 if value[-6] == "-" else 1
         offset = sign * datetime.timedelta(hours=int(off_hour), minutes=int(off_minute))
-    whole = datetime.datetime(
-        int(year), int(month), int(day), int(hour), int(minute), int(second),
-        tzinfo=datetime.timezone(offset),
-    ).astimezone(datetime.timezone.utc)
+    days = datetime.date(int(year), int(month), int(day)).toordinal()
+    whole = days * 86400 + int(hour) * 3600 + int(minute) * 60 + int(second)
+    whole -= int(offset.total_seconds())
     return whole, decimal.Decimal("0." + fraction.group(1)) if fraction else decimal.Decimal(0)
 
 
@@ -1510,7 +1513,7 @@ class OctenToolSpec(BaseToolSpec):
 
         Args:
             query: Text describing the images, max 500 chars.
-            image_url: Public http(s) URL of a reference image.
+            image_url: Public https URL, with a domain name, of a reference image.
             include_domains: Only images whose source page is on these domains.
             exclude_domains: Drop images whose source page is on these domains.
 
@@ -1539,11 +1542,11 @@ class OctenToolSpec(BaseToolSpec):
                 "error": "Got neither query nor image_url. Nothing was searched. Pass query "
                 "(text describing the images) or image_url (a public image URL), exactly one."
             }
-        url = str(image_url).strip(" \t\n\r\f\v") if has_url else None
-        if url is not None and not _is_http_url(url):
+        url = str(image_url) if has_url else None  # sent exactly as given
+        if url is not None and not _is_https_url(url):
             return {
-                "error": "image_url must be a public http(s) URL of an image. "
-                "Nothing was searched."
+                "error": "image_url must be a public https URL with a domain name (no IP "
+                "address) of an image. Nothing was searched."
             }
         model_args = {
             k: v

@@ -27,11 +27,13 @@ has both new endpoints. One thing changes:
 - `image_search`: Image Search, finds images on the web by a text query or by
   a reference image.
   - The model passes exactly one of `query` (text, max 500 characters) or
-    `image_url` (a public http(s) URL of an image), plus optional
-    `include_domains` and `exclude_domains` (at most 10 each, matched against
-    each result's source page). Both inputs, neither, an `image_url` that is not
-    http(s), or a value over a limit is returned to the model before any
-    request. Base64 image input is not offered to the model; call the `octen`
+    `image_url` (a public https URL with a domain name, not an IP address, as
+    the API requires), plus optional `include_domains` and `exclude_domains` (at
+    most 10 each, matched against each result's source page). Both inputs,
+    neither, an `image_url` that is not an https URL with a domain name (or that
+    holds ASCII whitespace or control characters), or a value over a limit is
+    returned to the model before any request; a valid `image_url` is sent
+    exactly as given. Base64 image input is not offered to the model; call the `octen`
     SDK directly for it.
   - `count` (1-10), `safesearch` (`"off"` or `"strict"`) and `timeout` come from
     the new keyword-only constructor argument `image_search_options`, checked

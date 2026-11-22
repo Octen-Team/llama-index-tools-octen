@@ -210,9 +210,36 @@ def test_design_group_id_with_sdk_images_model(octen_cls: MagicMock) -> None:
     )
 
 
-def test_image_url_sent_is_the_trimmed_value_validated(octen_cls: MagicMock) -> None:
-    _spec().image_search(image_url=f"  {IMAGE_URL}\n")
-    _sdk(octen_cls, "image_search").assert_called_once_with(image_url=IMAGE_URL)
+def test_image_url_with_surrounding_ascii_whitespace_rejected(octen_cls: MagicMock) -> None:
+    # The value sent is always the string given, so it is never trimmed first.
+    for url in (f"  {IMAGE_URL}", f"{IMAGE_URL}\n", f"\t{IMAGE_URL}"):
+        assert "https URL with a domain name" in _spec().image_search(image_url=url)["error"]
+    octen_cls.assert_not_called()
+
+
+def test_non_ascii_path_characters_left_to_the_parser(octen_cls: MagicMock) -> None:
+    url = "https://example.com/caf\u00e9\u00a0menu.png"
+    _spec().image_search(image_url=url)
+    _sdk(octen_cls, "image_search").assert_called_once_with(image_url=url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com/a.png",
+        "HTTP://example.com/a.png",
+        "https://1.2.3.4/a.png",
+        "https://192.0.2.1:8080/a.png",
+        "https://u:p@1.2.3.4/a.png",
+        "https://[2001:db8::1]/a.png",
+        "https://u:p@[2001:db8::1]:443/a.png",
+        "https://[::ffff:192.0.2.1]/a.png",
+    ],
+)
+def test_image_url_needs_https_and_a_domain_name(octen_cls: MagicMock, url: str) -> None:
+    error = _spec().image_search(image_url=url)["error"]
+    assert "https URL with a domain name (no IP address)" in error
+    octen_cls.assert_not_called()
 
 
 def test_verbose_output_omits_the_image_url(octen_cls: MagicMock, capsys: Any) -> None:
@@ -359,41 +386,41 @@ def test_design_wire_body() -> None:
         ({"query": "cats", "image_url": IMAGE_URL}, "not both"),
         ({}, "Got neither"),
         ({"query": " ", "image_url": ""}, "Got neither"),
-        ({"image_url": "ftp://example.com/a.jpg"}, "http(s)"),
-        ({"image_url": "data:image/png;base64,AAAA"}, "http(s)"),
-        ({"image_url": "example.com/a.jpg"}, "http(s)"),
-        ({"image_url": "https://"}, "http(s)"),
-        ({"image_url": "https://:443/x.png"}, "http(s)"),
-        ({"image_url": "https://[example.com/x.jpg"}, "http(s)"),
-        ({"image_url": "http://user@/x.png"}, "http(s)"),
-        ({"image_url": "https://example.com:abc/x.png"}, "http(s)"),
-        ({"image_url": "https://example.com:70000/x.png"}, "http(s)"),
-        ({"image_url": "https://exa mple.com/photo.png"}, "http(s)"),
-        ({"image_url": "https://example.com/my photo.png"}, "http(s)"),
-        ({"image_url": "https://example.com/a.png\tb"}, "http(s)"),
-        ({"image_url": "\x00https://example.com/a.png"}, "http(s)"),
-        ({"image_url": "https://example.com/a\x7f.png"}, "http(s)"),
-        ({"image_url": "https://example.com/a.png\x1f"}, "http(s)"),
-        ({"image_url": "https:///example.com/a.png"}, "http(s)"),
-        ({"image_url": "https://\\example.com/a.png"}, "http(s)"),
-        ({"image_url": "https://exa\\mple.com/a.png"}, "http(s)"),
-        ({"image_url": "https://example.com\\a.png"}, "http(s)"),
-        ({"image_url": "https://ex<am>ple.com/a.png"}, "http(s)"),
-        ({"image_url": 'https://exa"mple.com/a.png'}, "http(s)"),
-        ({"image_url": "https://exa%zzmple.com/a.png"}, "http(s)"),
-        ({"image_url": "https://exa%2mple.com/a.png"}, "http(s)"),
-        ({"image_url": "https://example.com/a%2.png"}, "http(s)"),
-        ({"image_url": "https://example.com/a.png?x=%"}, "http(s)"),
-        ({"image_url": "https://a@b@example.com/a.png"}, "http(s)"),
-        ({"image_url": "https://u[1]@example.com/a.png"}, "http(s)"),
-        ({"image_url": "https://[::1/a.png"}, "http(s)"),
-        ({"image_url": "https://[zz::1]/a.png"}, "http(s)"),
-        ({"image_url": "https://[1:2:3]/a.png"}, "http(s)"),
-        ({"image_url": "https://[12345::]/a.png"}, "http(s)"),
-        ({"image_url": "https://[::1]x/a.png"}, "http(s)"),
-        ({"image_url": "https://ex]ample.com/a.png"}, "http(s)"),
-        ({"image_url": "https://example.com:80:90/a.png"}, "http(s)"),
-        ({"image_url": "https://exa:mple.com:80/a.png"}, "http(s)"),
+        ({"image_url": "ftp://example.com/a.jpg"}, "https URL with a domain name"),
+        ({"image_url": "data:image/png;base64,AAAA"}, "https URL with a domain name"),
+        ({"image_url": "example.com/a.jpg"}, "https URL with a domain name"),
+        ({"image_url": "https://"}, "https URL with a domain name"),
+        ({"image_url": "https://:443/x.png"}, "https URL with a domain name"),
+        ({"image_url": "https://[example.com/x.jpg"}, "https URL with a domain name"),
+        ({"image_url": "http://user@/x.png"}, "https URL with a domain name"),
+        ({"image_url": "https://example.com:abc/x.png"}, "https URL with a domain name"),
+        ({"image_url": "https://example.com:70000/x.png"}, "https URL with a domain name"),
+        ({"image_url": "https://exa mple.com/photo.png"}, "https URL with a domain name"),
+        ({"image_url": "https://example.com/my photo.png"}, "https URL with a domain name"),
+        ({"image_url": "https://example.com/a.png\tb"}, "https URL with a domain name"),
+        ({"image_url": "\x00https://example.com/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://example.com/a\x7f.png"}, "https URL with a domain name"),
+        ({"image_url": "https://example.com/a.png\x1f"}, "https URL with a domain name"),
+        ({"image_url": "https:///example.com/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://\\example.com/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://exa\\mple.com/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://example.com\\a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://ex<am>ple.com/a.png"}, "https URL with a domain name"),
+        ({"image_url": 'https://exa"mple.com/a.png'}, "https URL with a domain name"),
+        ({"image_url": "https://exa%zzmple.com/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://exa%2mple.com/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://example.com/a%2.png"}, "https URL with a domain name"),
+        ({"image_url": "https://example.com/a.png?x=%"}, "https URL with a domain name"),
+        ({"image_url": "https://a@b@example.com/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://u[1]@example.com/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://[::1/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://[zz::1]/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://[1:2:3]/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://[12345::]/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://[::1]x/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://ex]ample.com/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://example.com:80:90/a.png"}, "https URL with a domain name"),
+        ({"image_url": "https://exa:mple.com:80/a.png"}, "https URL with a domain name"),
         ({"query": "x" * 501}, "query"),
         ({"query": "q", "include_domains": ["a.com"] * 11}, "include_domains"),
         ({"query": "q", "exclude_domains": ["a.com"] * 11}, "exclude_domains"),
@@ -415,7 +442,7 @@ def test_image_limits_accepted(octen_cls: MagicMock) -> None:
     spec = _spec()
     assert "error" not in spec.image_search("x" * 500, include_domains=["a.com"] * 10)
     assert "error" not in spec.image_search(image_url="HTTPS://example.com/a.png")
-    assert "error" not in spec.image_search(image_url="http://example.com/a.png",
+    assert "error" not in spec.image_search(image_url="https://example.com/a.png",
                                             exclude_domains=["b.com"] * 10)
 
 
@@ -848,13 +875,13 @@ def test_image_url_errors_never_carry_upstream_text(
     assert "Image Search" in error
 
 
-def test_authority_checks_ip_literals_itself() -> None:
-    # Older Python patch releases' urlparse does not validate bracketed hosts.
+def test_authority_rejects_bracketed_hosts() -> None:
+    # The API takes only domain-name hosts, so no bracketed (IPv6) host is valid.
     from llama_index.tools.octen.base import _valid_authority
 
-    assert _valid_authority("[2001:db8::1]:443") and _valid_authority("u@[::1]")
-    for netloc in ("[1:2:3]", "[12345::]", "[::1", "[]", "[2001:4860::1]junk:443",
-                   "[::1]:44a", "[::1]x", "u@[::1]@x"):
+    assert _valid_authority("u:p@example.com:443")
+    for netloc in ("[2001:db8::1]:443", "u@[::1]", "[1:2:3]", "[::1", "[]",
+                   "[2001:4860::1]junk:443", "u@[::1]@x"):
         assert not _valid_authority(netloc), netloc
 
 
@@ -870,7 +897,7 @@ def test_userinfo_allows_rfc3986_userinfo_characters(octen_cls: MagicMock) -> No
         assert "error" not in _spec().image_search(image_url=url), url
     for url in ("https://us<er@example.com/a.png", "https://us%zzer@example.com/a.png",
                 'https://us"er@example.com/a.png', "https://us[er@example.com/a.png"):
-        assert "http(s)" in _spec().image_search(image_url=url)["error"], url
+        assert "https URL with a domain name" in _spec().image_search(image_url=url)["error"], url
 
 
 def test_host_validation_does_not_reject_valid_hosts(octen_cls: MagicMock) -> None:
@@ -889,7 +916,7 @@ def test_host_validation_rejects_characters_that_cannot_be_in_a_host(
     octen_cls: MagicMock, host: str
 ) -> None:
     result = _spec().image_search(image_url=f"https://{host}/a.png")
-    assert "http(s)" in result["error"]
+    assert "https URL with a domain name" in result["error"]
     octen_cls.assert_not_called()
 
 
@@ -921,6 +948,8 @@ def test_sanitized_error_drops_notes_and_other_attributes(octen_cls: MagicMock) 
         # Differs below a microsecond.
         ("2025-01-01T00:00:00.0000002Z", "2025-01-01T00:00:00.0000001Z"),
         ("2025-01-01T08:00:00.1234567891+08:00", "2025-01-01T00:00:00.123456789Z"),
+        ("9999-12-31T23:59:59-05:00", "9999-12-31T23:59:59Z"),
+        ("0001-01-01T00:00:00Z", "0001-01-01T00:00:00+00:01"),
     ],
 )
 def test_design_reversed_time_range_rejected(start: str, end: str) -> None:
@@ -937,6 +966,9 @@ def test_design_reversed_time_range_rejected(start: str, end: str) -> None:
         ("2025-01-01T00:00:00.1Z", "2025-01-01T00:00:00.100000000Z"),
         ("2025-01-01T00:00:00.0000001Z", "2025-01-01T00:00:00.0000002Z"),
         ("2025-01-01T08:00:00.123456789+08:00", "2025-01-01T00:00:00.1234567891Z"),
+        # Near the ends of the calendar: applying the offset must not overflow.
+        ("0001-01-01T00:00:00+05:00", "9999-12-31T23:59:59-05:00"),
+        ("0001-01-01T00:00:00+23:59", "0001-01-01T00:00:00+23:59"),
     ],
 )
 def test_design_ordered_time_range_accepted(start: str, end: str) -> None:
@@ -971,9 +1003,8 @@ def test_design_both_switches_off_rejected(options: Dict[str, Any]) -> None:
 
 
 def test_image_url_accepts_authority_forms(octen_cls: MagicMock) -> None:
-    for url in ("https://user:pw@example.com:8443/a.png", "https://[2001:db8::1]/a.png",
-                "https://u:p@[2001:db8::1]:443/a.png", "https://[::ffff:192.0.2.1]/a.png",
-                "https://192.0.2.1:8080/a.png", "https://example.com:/a.png",
+    for url in ("https://user:pw@example.com:8443/a.png", "HTTPS://example.com/a.png",
+                "https://1.2.3.example/a.png", "https://example.com:/a.png",
                 "https://us%40er@example.com/a.png", "https://ex%41mple.com/a.png",
                 "https://xn--bcher-kva.example/a.png", "https://b\u00fccher.example/a.png",
                 "https://example.com/a%20b.png?x=1#f"):
