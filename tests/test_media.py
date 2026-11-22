@@ -8,6 +8,7 @@ https://docs.octen.ai/api-reference/design-search.md and octen 0.13.0
 import inspect
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 
@@ -481,7 +482,6 @@ def test_design_wire_body() -> None:
         ({"image_url": "https://exa%zzmple.com/a.png"}, "https URL with a domain name"),
         ({"image_url": "https://exa%2mple.com/a.png"}, "https URL with a domain name"),
         ({"image_url": "https://example.com/a%2.png"}, "https URL with a domain name"),
-        ({"image_url": "https://a@b@example.com/a.png"}, "https URL with a domain name"),
         ({"image_url": "https://u[1]@example.com/a.png"}, "https URL with a domain name"),
         ({"image_url": "https://[::1/a.png"}, "https URL with a domain name"),
         ({"image_url": "https://[zz::1]/a.png"}, "https URL with a domain name"),
@@ -522,6 +522,7 @@ def test_image_limits_accepted(octen_cls: MagicMock) -> None:
         ({}, "Got neither"),
         ({"query": "   "}, "Got neither"),
         ({"query": "", "group_id": " "}, "Got neither"),
+        ({"group_id": " \t\n "}, "Got neither"),
         ({"query": "x" * 501}, "query"),
         ({"group_id": 7}, "group_id"),
         ({"query": ["a"]}, "query"),
@@ -975,14 +976,15 @@ def test_userinfo_allows_rfc3986_userinfo_characters(octen_cls: MagicMock) -> No
 
 def test_host_validation_does_not_reject_valid_hosts(octen_cls: MagicMock) -> None:
     for host in (f"{ARABIC_LABEL}.example", f"{ARABIC_PUNYCODE}.example",
-                 "cafe\u0301.example", "ex{a}mple.com", "a|b^c.example", "a_b~c.example"):
+                 "cafe\u0301.example", "a!b$c&d.example", "x'y(z)*+,;=.example",
+                 "a_b~c.example"):
         url = f"https://{host}/a.png"
         assert "error" not in _spec().image_search(image_url=url), url
     assert _sdk(octen_cls, "image_search").call_count == 6
 
 
 @pytest.mark.parametrize(
-    "host", ["exa\\mple.com", "ex<a>mple.com", 'exa"mple.com', "exa'mple.com",
+    "host", ["exa\\mple.com", "ex<a>mple.com", 'exa"mple.com', "ex^ample.com",
              "exa`mple.com", "exa%2mple.com", "ex]ample.com", "ex[ample.com"],
 )
 def test_host_validation_rejects_characters_that_cannot_be_in_a_host(
@@ -1323,3 +1325,33 @@ def test_names_match_real_sdk_signatures() -> None:
     # group_id travels inside images.
     assert _ALLOWED_OPTIONS["design_search_options"] | {"query"} <= design
     assert "group_id" in octen.DesignImageOptions.model_fields
+
+
+# Image URLs run through Go's net/url with the API's https and domain-name rule; see its
+# "source" line. Every URL the server rejects must be rejected here too.
+URL_GRID = json.loads((Path(__file__).parent / "data" / "image_url_cases.json").read_text())
+
+# Accepted by the server's URL parser but rejected here, each with the reason:
+GRID_LOCAL_REJECTS = {
+    'https://ex"ample.com/a.png',  # '"' is not valid in a domain name: nothing to fetch
+    "https://ex<ample.com/a.png",  # "<" is not valid in a domain name: nothing to fetch
+    "https://ex>ample.com/a.png",  # ">" is not valid in a domain name: nothing to fetch
+    "https://ex]ample.com/a.png",  # "]" is not valid in a domain name: nothing to fetch
+}
+
+
+def test_url_grid_fixture() -> None:
+    assert URL_GRID["source"].startswith("Go net/url")
+    accepted = {case["url"] for case in URL_GRID["cases"] if case["server_accepts"]}
+    assert GRID_LOCAL_REJECTS <= accepted  # no stale entries
+
+
+@pytest.mark.parametrize(
+    "case", URL_GRID["cases"], ids=lambda c: c["url"].encode("unicode_escape").decode()
+)
+def test_image_url_grid_matches_the_server(octen_cls: MagicMock, case: Dict[str, Any]) -> None:
+    accepted = "error" not in _spec().image_search(image_url=case["url"])
+    if not case["server_accepts"]:
+        assert not accepted, "accepted locally, rejected by the server"
+    else:
+        assert accepted == (case["url"] not in GRID_LOCAL_REJECTS)

@@ -348,11 +348,12 @@ def _blank(value: Optional[str]) -> bool:
     return value is None or not value.strip()
 
 
-# RFC 3986 authority: [userinfo "@"] host [":" port]. The API takes only a domain-name
-# host, so there is no bracketed IP form; non-ASCII is allowed for internationalized names.
-_NAME = r"(?:[^ \x00-\x1f\x7f\\<>\"'`@\[\]:/?#%]|%[0-9A-Fa-f]{2})"
-# RFC 3986 userinfo: unreserved, sub-delims (incl. "'"), ":" and %-escapes; non-ASCII too.
-_USERINFO = r"(?:[A-Za-z0-9\-._~!$&'()*+,;=:\u0080-\U0010FFFF]|%[0-9A-Fa-f]{2})*"
+# RFC 3986 authority: [userinfo "@"] host [":" port], matched to Go's net/url, which the
+# API uses. The host takes ASCII unreserved and sub-delims plus non-ASCII (internationalized
+# names), and has no bracketed IP form since the API needs a domain name.
+_NAME = r"(?:[A-Za-z0-9\-._~!$&'()*+,;=\u0080-\U0010FFFF]|%[0-9A-Fa-f]{2})"
+# Userinfo is ASCII only: unreserved, sub-delims, ":", "@" and %-escapes.
+_USERINFO = r"(?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2})*"
 _AUTHORITY = re.compile(
     rf"(?:{_USERINFO}@)?{_NAME}+(?::[0-9]*)?"
 )
