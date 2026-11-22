@@ -363,6 +363,9 @@ def test_live_extract_include_images_with_control() -> None:
     images = flagged.get("images") or []
     print(f"images={len(images)} first={images[:1]}")
     assert images and all(isinstance(i, dict) and i.get("url") for i in images), flagged
+    cover = flagged.get("cover_image") or {}
+    print(f"cover_image={cover}")
+    assert isinstance(cover, dict) and cover.get("url"), flagged
     control = _items("extract images control", _spec().extract(url))[0]
     assert control["status"] == "success" and not control.get("images"), control
     assert not control.get("cover_image"), control

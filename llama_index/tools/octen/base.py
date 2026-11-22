@@ -225,8 +225,9 @@ class _ExtractArgs(BaseModel):
 
 # Based on the hosted MCP server's extract tool; {max_urls} is the developer's cap.
 _EXTRACT_DESCRIPTION = (
-    "Read web pages by URL and return their clean content (markdown or text), one "
-    "result per URL in the order given. Use it when you already have the URLs; to find "
+    "Read web pages by URL and return their clean content (markdown or text). Match "
+    "each result to its input by the result's url field, not by position. Use it when "
+    "you already have the URLs; to find "
     "pages first, use search or broad_search. Send at most {max_urls} URLs per call; "
     "for more, split them across several calls. Without query, each result has the "
     "page's full_content, which is what you want in almost all cases. Only pass query "

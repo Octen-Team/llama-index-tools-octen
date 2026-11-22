@@ -108,6 +108,7 @@ def test_description_states_the_cap(options: Dict[str, Any], cap: int) -> None:
     assert f"at most {cap} URLs per call" in description
     for phrase in [
         "already have the URLs",
+        "by the result's url field, not by position",
         "search or broad_search",
         "full_content",
         "highlights instead of full_content",

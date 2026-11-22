@@ -42,9 +42,10 @@ shapes and errors. Things that do change:
     take longer.
   - `max_urls` (1-20, default 5) caps the URLs per call. A call with more, or
     with none, sends no request and tells the model the limit.
-  - Every URL comes back in `data`, including failed ones with their
-    `error_message`; content is not truncated. Otherwise the return shape and
-    error handling are the same as the vertical functions.
+  - `data` keeps every result, including failed URLs with their
+    `error_message`; match results to inputs by each item's `url`, not by
+    position. Content is not truncated. Otherwise the return shape and error
+    handling are the same as the vertical functions.
 
 ### Changed
 

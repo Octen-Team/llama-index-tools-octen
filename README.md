@@ -131,7 +131,7 @@ for r in result["data"]["results"]:
 
 ## Extract
 
-`extract` reads web pages by URL and returns their clean content, one result per URL. The model sets only `urls` and, optionally, `query`: with a query each result has `highlights` (the passages relevant to it) instead of `full_content`. Everything that changes cost or response size comes from `extract_options`.
+`extract` reads web pages by URL and returns their clean content. Match each result to its input by the item's `url` field, not by position. The model sets only `urls` and, optionally, `query`: with a query each result has `highlights` (the passages relevant to it) instead of `full_content`. Everything that changes cost or response size comes from `extract_options`.
 
 ```python
 tool = OctenToolSpec(
@@ -159,7 +159,7 @@ for item in result["data"]["results"]:
 
 - As in the other options dicts, `timeout` is the HTTP request timeout passed to the SDK and overrides the spec-level `timeout`. The API's per-URL budget is `url_timeout`. When neither `timeout` is set, each request waits up to `url_timeout` (or the API default of 30) plus 90 seconds, since a batch, and `mode="advanced"` or `"auto"`, can take longer than one URL's budget. It is not a deadline for the whole call: the SDK still retries 408, 429, 500, 502, 503 and 504 responses (see [Retries](#retries)), so a call can take longer across attempts.
 - A call with more URLs than `max_urls`, or with none, sends no request: the model gets `{"error": ...}` with the limit and is told to split the URLs into several calls. URLs longer than 2048 characters, empty URLs and a `query` over 500 characters are also returned to the model before any request.
-- `data` keeps every URL in input order. A URL that could not be read has `status: "failed"` and an `error_message`, and is not billed; the others still return content. Content is not truncated. Each successful item has `resolved_mode`, the mode it was billed at; with `verbose=True` the request's usage counts (`successful_by_mode`) are printed.
+- `data` keeps every result the API returns, failed ones included; match results to inputs by each item's `url`, not by position. A URL that could not be read has `status: "failed"` and an `error_message`, and is not billed; the others still return content. Content is not truncated. Each successful item has `resolved_mode`, the mode it was billed at; with `verbose=True` the request's usage counts (`successful_by_mode`) are printed.
 - Errors are split as described for the vertical functions below.
 
 ## Broad, News, Business, Pulse and Place Search
