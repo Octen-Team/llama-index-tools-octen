@@ -7,10 +7,11 @@
 Existing functions are unchanged: same parameters, same requests, same return
 shapes and errors. Things that do change:
 
-- **`to_tool_list()` now returns ten tools instead of nine.** An agent built
-  with `OctenToolSpec(...).to_tool_list()` also gets `search_premier`, and the
-  model may call it; it has its own pricing. To keep the 0.2.x tool set, pass
-  `spec_functions` to `to_tool_list()` without `"search_premier"`.
+- **`to_tool_list()` now returns eleven tools instead of nine.** An agent built
+  with `OctenToolSpec(...).to_tool_list()` also gets `search_premier` and
+  `extract`, and the model may call them; they have their own pricing. To keep
+  the 0.2.x tool set, pass `spec_functions` to `to_tool_list()` without
+  `"search_premier"` and `"extract"`.
 - **`octen` is upgraded to 0.13.0 or newer.** If your project pins `octen` below
   0.13.0, dependency resolution fails until you relax that pin.
 
@@ -27,6 +28,18 @@ shapes and errors. Things that do change:
     639-1 codes, and `start_time` / `end_time` must be RFC 3339
     times (e.g. `2025-01-01T00:00:00Z`).
   - Return shape and error handling are the same as the vertical functions.
+- `extract`: Extract, reads web pages by URL and returns their clean content.
+  - The model sets only `urls` and an optional `query` (highlights instead of
+    full content). `mode`, `format`, `max_age_seconds`, the per-URL `timeout`
+    (1-60), `include_images` / `include_videos` / `include_audio`,
+    `include_links`, `request_timeout` (socket) and `max_urls` come from the
+    new keyword-only constructor argument `extract_options`, checked when the
+    spec is built.
+  - `max_urls` (1-20, default 5) caps the URLs per call. A call with more, or
+    with none, sends no request and tells the model the limit.
+  - Every URL comes back in `data`, including failed ones with their
+    `error_message`; content is not truncated. Otherwise the return shape and
+    error handling are the same as the vertical functions.
 
 ### Changed
 
