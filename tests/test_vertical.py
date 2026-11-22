@@ -84,6 +84,8 @@ def test_spec_functions_list() -> None:
         "place_search",
         "search_premier",
         "extract",
+        "image_search",
+        "design_search",
         "current_date",
     ]
 

@@ -9,6 +9,7 @@ import os
 import re
 import warnings
 from typing import Any, Dict, FrozenSet, List, Literal, Optional, Tuple, Type
+from urllib.parse import urlparse
 
 from llama_index.core.bridge.pydantic import BaseModel, Field, ValidationError
 from llama_index.core.schema import Document
@@ -238,6 +239,114 @@ _EXTRACT_DESCRIPTION = (
     "while the other URLs still return their content."
 )
 
+class _ImageSearchArgs(BaseModel):
+    query: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Text describing the images to find, max 500 chars. "
+        "Exactly one of query or image_url, never both.",
+    )
+    image_url: Optional[str] = Field(
+        default=None,
+        description="Public http(s) URL of an image already on the web, to find "
+        "visually similar images. Exactly one of query or image_url, never both.",
+    )
+    include_domains: Optional[List[str]] = Field(
+        default=None,
+        max_length=10,
+        description='Only return images whose source page is on these domains, e.g. '
+        '["unsplash.com"]. At most 10.',
+    )
+    exclude_domains: Optional[List[str]] = Field(
+        default=None,
+        max_length=10,
+        description="Drop images whose source page is on these domains. At most 10.",
+    )
+
+
+class _DesignSearchArgs(BaseModel):
+    query: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description='What to find design references for, e.g. "pricing section for a '
+        'SaaS landing page". Max 500 chars. Required unless group_id is set.',
+    )
+    group_id: Optional[str] = Field(
+        default=None,
+        description="The group.group_id of an image result from an earlier design_search "
+        "call, to get every image of that web page or deck in order instead of searching "
+        "by query.",
+    )
+
+
+# Based on the hosted MCP server's image_search tool and the Image Search API reference.
+_IMAGE_SEARCH_DESCRIPTION = (
+    "Find images on the web by a text query or by a reference image: returns ranked "
+    "images, each with its title, image url, source_page (the page hosting it), a "
+    "description of its content, and its width and height. Pass exactly one of query "
+    "(text describing the images) or image_url (a public URL of a picture already on "
+    "the web, to find visually similar ones), never both. Use it when the user wants "
+    "pictures, photos, diagrams, screenshots or other visual references; not for "
+    "general text web search (use search) or UI, web page and slide design references "
+    "(use design_search). Show an image by its url and cite its source_page. "
+    "include_domains and exclude_domains (at most 10 each) are matched against each "
+    "result's source_page."
+)
+
+# Based on the Design Search API reference.
+_DESIGN_SEARCH_DESCRIPTION = (
+    "Find design references: each image result is a screenshot of a web page, page "
+    "section, app screen or slide (its type), with a title, a description, the image "
+    "url, source_page (not for app screens) and, when returned, its design values "
+    "(design_facts: colors, fonts, font sizes) and reusable HTML code (snippet). Web "
+    "results on the same query come back alongside. Use it when designing or restyling "
+    "a UI, a landing page section or a slide deck and you want real examples to follow; "
+    "for general photos or pictures use image_search. A web_section or slide result "
+    "carries a group (group_id, name, position, total) for its web page or deck: to get "
+    "every image of that page or deck in order, call again with that group_id; query "
+    "may then be left out. Show an image by its url and cite its source_page."
+)
+
+# Fields kept for the model; thumbnails and page media are left out.
+_IMAGE_RESULT_FIELDS = ("title", "url", "source_page", "description", "width", "height")
+_DESIGN_IMAGE_FIELDS = (
+    "type", "title", "description", "url", "source_page", "width", "height",
+    "group", "design_facts", "snippet",
+)
+_DESIGN_WEB_FIELDS = (
+    "title", "url", "highlight", "full_content", "authors", "time_published",
+)
+
+
+def _pick(item: Any, fields: Tuple[str, ...]) -> Any:
+    if not isinstance(item, dict):
+        return item
+    return {k: item[k] for k in fields if item.get(k) is not None}
+
+
+def _trim_image_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    results = data.get("results") or []
+    return {"results": [_pick(r, _IMAGE_RESULT_FIELDS) for r in results]}
+
+
+def _trim_design_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    trimmed: Dict[str, Any] = {}
+    if data.get("query") is not None:
+        trimmed["query"] = data["query"]
+    if "images" in data:
+        trimmed["images"] = [_pick(i, _DESIGN_IMAGE_FIELDS) for i in data["images"] or []]
+    if "results" in data:
+        trimmed["results"] = [_pick(r, _DESIGN_WEB_FIELDS) for r in data["results"] or []]
+    return trimmed
+
+
+_TRIM = {"image_search": _trim_image_data, "design_search": _trim_design_data}
+
+
+def _blank(value: Optional[str]) -> bool:
+    return value is None or not value.strip()
+
+
 # Documented at https://docs.octen.ai/api-reference/extract.md
 _EXTRACT_DEFAULT_MAX_URLS = 5
 _EXTRACT_DEFAULT_URL_TIMEOUT = 30
@@ -294,6 +403,9 @@ _ALLOWED_OPTIONS: Dict[str, FrozenSet[str]] = {
             "timeout",
         }
     ),
+    "image_search_options": frozenset({"count", "safesearch", "timeout"}),
+    # images.group_id is model-facing and rejected here.
+    "design_search_options": frozenset({"images", "web_search", "timeout"}),
 }
 
 # RFC 3339 date-time, the "format: date-time" of the Web Search Premier API reference.
@@ -402,6 +514,12 @@ def _validate_option_values(name: str, options: Dict[str, Any]) -> None:
     if name == "extract_options":
         _check_extract_options(options)
         return
+    if name == "image_search_options":
+        _check_image_options(options)
+        return
+    if name == "design_search_options":
+        _check_design_options(options)
+        return
     _check_timeout(name, options.get("timeout"))
 
     fields = {k: v for k, v in options.items() if k != "timeout"}
@@ -483,6 +601,59 @@ def _check_extract_options(options: Dict[str, Any]) -> None:
         raise ValueError(f"{name} has an invalid value: {_describe(exc)}") from exc
 
 
+def _strict(name: str, prefix: str, model: Any, value: Any) -> Any:
+    """Validate with an SDK model in strict mode, so True or 5.0 is not coerced."""
+    if isinstance(value, BaseModel):
+        value = value.model_dump(exclude_none=True)
+    try:
+        return model.model_validate(value, strict=True)
+    except ValidationError as exc:
+        problems = "; ".join(
+            f"{prefix}{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"
+            for err in exc.errors()
+        )
+        raise ValueError(f"{name} has an invalid value: {problems}") from exc
+
+
+def _check_image_options(options: Dict[str, Any]) -> None:
+    import octen
+
+    name = "image_search_options"
+    _check_timeout(name, options.get("timeout"))
+    fields = {k: v for k, v in options.items() if k != "timeout"}
+    placeholder = {"inputs": [{"type": "text", "data": "placeholder"}]}
+    _strict(name, "", octen.ImageSearchRequest, {**placeholder, **fields})
+
+
+def _check_design_options(options: Dict[str, Any]) -> None:
+    import octen
+
+    name = "design_search_options"
+    _check_timeout(name, options.get("timeout"))
+    images = options.get("images")
+    if images is not None:
+        parsed = _strict(name, "images.", octen.DesignImageOptions, images)
+        if parsed.group_id is not None:
+            raise ValueError(
+                f"{name} does not accept 'images.group_id': the model sets it per call"
+            )
+    web_search = options.get("web_search")
+    if web_search is not None:
+        _strict(name, "web_search.", octen.DesignWebSearchOptions, web_search)
+        if isinstance(web_search, BaseModel):
+            web_search = web_search.model_dump(exclude_none=True)
+        try:
+            _check_premier_options(web_search)
+        except ValueError as exc:
+            raise ValueError(f"{name} has an invalid value: web_search.{exc}") from None
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    if isinstance(value, BaseModel):
+        return value.model_dump(exclude_none=True)
+    return dict(value or {})
+
+
 def _extract_sdk_options(options: Dict[str, Any]) -> Dict[str, Any]:
     """Map extract_options to the SDK's names: url_timeout -> timeout, timeout -> request_timeout."""
     renamed = {"url_timeout": "timeout", "timeout": "request_timeout"}
@@ -519,6 +690,8 @@ class OctenToolSpec(BaseToolSpec):
         "place_search",
         "search_premier",
         "extract",
+        "image_search",
+        "design_search",
         "current_date",
     ]
 
@@ -537,6 +710,8 @@ class OctenToolSpec(BaseToolSpec):
         place_search_options: Optional[Dict[str, Any]] = None,
         search_premier_options: Optional[Dict[str, Any]] = None,
         extract_options: Optional[Dict[str, Any]] = None,
+        image_search_options: Optional[Dict[str, Any]] = None,
+        design_search_options: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize with parameters.
 
@@ -567,6 +742,11 @@ class OctenToolSpec(BaseToolSpec):
                 max_urls (URLs the model may send per call, 1-20, default 5)
                 and timeout (the HTTP request timeout per attempt; defaults to
                 the spec-level timeout, else (url_timeout or 30) + 90 seconds).
+            image_search_options: Options sent on every image_search call:
+                count, safesearch, timeout.
+            design_search_options: Options sent on every design_search call:
+                images (all keys but group_id, which the model sets), web_search,
+                timeout.
 
         Raises:
             ValueError: if no API key is available, or an options dict holds
@@ -586,6 +766,8 @@ class OctenToolSpec(BaseToolSpec):
             "place_search_options": place_search_options,
             "search_premier_options": search_premier_options,
             "extract_options": extract_options,
+            "image_search_options": image_search_options,
+            "design_search_options": design_search_options,
         }
         self._options: Dict[str, Dict[str, Any]] = {}
         for name, options in given.items():
@@ -619,6 +801,14 @@ class OctenToolSpec(BaseToolSpec):
         if fn_name == "extract":
             description = _EXTRACT_DESCRIPTION.format(max_urls=self._extract_max_urls())
             return ToolMetadata(name=fn_name, description=description, fn_schema=_ExtractArgs)
+        if fn_name == "image_search":
+            return ToolMetadata(
+                name=fn_name, description=_IMAGE_SEARCH_DESCRIPTION, fn_schema=_ImageSearchArgs
+            )
+        if fn_name == "design_search":
+            return ToolMetadata(
+                name=fn_name, description=_DESIGN_SEARCH_DESCRIPTION, fn_schema=_DesignSearchArgs
+            )
         model_facing = _MODEL_FACING.get(fn_name)
         if model_facing is None:
             return super().get_metadata_from_fn_name(fn_name, spec_functions=spec_functions)
@@ -1162,6 +1352,118 @@ class OctenToolSpec(BaseToolSpec):
         kwargs.update(model_args)
         return self._call("extract", kwargs, f"{len(urls)} URLs")
 
+    def image_search(
+        self,
+        query: Optional[str] = None,
+        image_url: Optional[str] = None,
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Image Search: find images by a text query or a reference image URL.
+
+        The description and argument schema the model sees are set in
+        get_metadata_from_fn_name. Developer options come from image_search_options.
+
+        Args:
+            query: Text describing the images, max 500 chars.
+            image_url: Public http(s) URL of a reference image.
+            include_domains: Only images whose source page is on these domains.
+            exclude_domains: Drop images whose source page is on these domains.
+
+        Returns:
+            {"data": {"results": [...]}, "request_id", "warning"?}, or {"error": ...}
+            for errors handed to the model. Exactly one of query and image_url.
+        """
+        try:
+            _ImageSearchArgs(
+                query=query,
+                image_url=image_url,
+                include_domains=include_domains,
+                exclude_domains=exclude_domains,
+            )
+        except ValidationError as exc:
+            return {"error": f"Invalid arguments: {_describe(exc)}"}
+        has_query, has_url = not _blank(query), not _blank(image_url)
+        if has_query and has_url:
+            return {
+                "error": "Got both query and image_url, but this tool takes exactly one "
+                "input. Nothing was searched. Pass query to search by text, or image_url "
+                "to search by image, not both."
+            }
+        if not has_query and not has_url:
+            return {
+                "error": "Got neither query nor image_url. Nothing was searched. Pass query "
+                "(text describing the images) or image_url (a public image URL), exactly one."
+            }
+        if has_url:
+            parsed = urlparse(str(image_url).strip())
+            if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+                return {
+                    "error": "image_url must be a public http(s) URL of an image. "
+                    "Nothing was searched."
+                }
+        model_args = {
+            k: v
+            for k, v in (
+                ("query", query if has_query else None),
+                ("image_url", image_url if has_url else None),
+                ("include_domains", include_domains),
+                ("exclude_domains", exclude_domains),
+            )
+            if v is not None
+        }
+        kwargs = self._developer_kwargs("image_search")
+        kwargs.update(model_args)
+        subject = query if has_query else f"image {image_url}"
+        return self._call("image_search", kwargs, str(subject))
+
+    def design_search(
+        self, query: Optional[str] = None, group_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Design Search: design references as screenshots with their design values.
+
+        The description and argument schema the model sees are set in
+        get_metadata_from_fn_name. Developer options come from design_search_options.
+
+        Args:
+            query: What to find design references for, max 500 chars.
+                Required unless group_id is set.
+            group_id: The group.group_id of an earlier image result; returns
+                every image of that web page or deck, in order.
+
+        Returns:
+            {"data": {"query"?, "images", "results"}, "request_id", "warning"?},
+            or {"error": ...} for errors handed to the model.
+        """
+        try:
+            _DesignSearchArgs(query=query, group_id=group_id)
+        except ValidationError as exc:
+            return {"error": f"Invalid arguments: {_describe(exc)}"}
+        has_query, has_group = not _blank(query), not _blank(group_id)
+        if not has_query and not has_group:
+            return {
+                "error": "Got neither query nor group_id. Nothing was searched. Pass query "
+                "(what to find design references for), or group_id from an earlier "
+                "result's group to get every image of that web page or deck."
+            }
+        kwargs = self._developer_kwargs("design_search")
+        if has_group:
+            kwargs["images"] = {**_as_dict(kwargs.get("images")), "group_id": group_id}
+        if has_query:
+            kwargs["query"] = query
+        subject = query if has_query else f"group {group_id}"
+        return self._call("design_search", kwargs, str(subject))
+
+    def _developer_kwargs(self, endpoint: str) -> Dict[str, Any]:
+        """Developer options for one call, with the timeout resolved."""
+        kwargs = dict(self._options[f"{endpoint}_options"])
+        timeout = kwargs.pop("timeout", None)
+        if timeout is None:
+            timeout = self._timeout
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        return kwargs
+
     def _extract_max_urls(self) -> int:
         max_urls = self._options["extract_options"].get("max_urls")
         return _EXTRACT_DEFAULT_MAX_URLS if max_urls is None else max_urls
@@ -1175,12 +1477,7 @@ class OctenToolSpec(BaseToolSpec):
         if problem is not None:
             return {"error": problem}
 
-        kwargs = dict(self._options[f"{endpoint}_options"])
-        timeout = kwargs.pop("timeout", None)
-        if timeout is None:
-            timeout = self._timeout
-        if timeout is not None:
-            kwargs["timeout"] = timeout
+        kwargs = self._developer_kwargs(endpoint)
         kwargs.update(model_args)
         return self._call(endpoint, kwargs, model_args["query"])
 
@@ -1192,6 +1489,8 @@ class OctenToolSpec(BaseToolSpec):
                 response = client.place_search.search(**kwargs)
             elif endpoint == "extract":
                 response = client.extract.extract(**kwargs)
+            elif endpoint in ("image_search", "design_search"):
+                response = getattr(client, endpoint).search(**kwargs)
             else:
                 response = getattr(client.search, endpoint)(**kwargs)
         except Exception as exc:
@@ -1207,7 +1506,10 @@ class OctenToolSpec(BaseToolSpec):
 
         extra = getattr(response, "model_extra", None) or {}
         request_id = extra.get("request_id", getattr(response, "request_id", None))
-        result: Dict[str, Any] = {"data": response.data, "request_id": request_id}
+        data = response.data
+        if endpoint in _TRIM:
+            data = _TRIM[endpoint](data)
+        result: Dict[str, Any] = {"data": data, "request_id": request_id}
         warning = getattr(response, "warning", None)
         if warning:
             result["warning"] = warning

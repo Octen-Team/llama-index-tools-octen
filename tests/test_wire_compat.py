@@ -6,7 +6,8 @@ runs the same inputs with octen 0.13.0. A difference means a 0.2.0 function now 
 a different request, whether from this package or from the octen upgrade.
 
 EXPECTED_PREMIER was captured the same way on 58148b3, before extract was added.
-Every capture runs twice: as given, and with extract_options set as well.
+Every capture runs as given, with extract_options set, and with the image_search
+and design_search options set as well.
 """
 
 import json
@@ -272,6 +273,17 @@ EXTRACT_OPTIONS = {
 }
 
 
+MEDIA_OPTIONS = {
+    "image_search_options": {"count": 10, "safesearch": "off", "timeout": 5},
+    "design_search_options": {
+        "images": {"count": 30, "design_facts": False, "snippet": {"enable": False}},
+        "web_search": {"enable": False, "count": 1},
+        "timeout": 5,
+    },
+}
+EXTRA = [{}, {"extract_options": EXTRACT_OPTIONS}, MEDIA_OPTIONS]
+
+
 def _capture(
     calls_in: List[Tuple[str, Dict[str, Any], Dict[str, Any]]],
     extra: Dict[str, Any],
@@ -299,13 +311,13 @@ def _capture(
     return calls
 
 
-@pytest.mark.parametrize("extra", [{}, {"extract_options": EXTRACT_OPTIONS}])
+@pytest.mark.parametrize("extra", EXTRA)
 def test_existing_functions_send_the_same_requests(extra: Dict[str, Any]) -> None:
     # json.dumps keeps key order, so a reordered body fails too.
     assert json.dumps(_capture(_calls(), extra)) == json.dumps(EXPECTED)
 
 
-@pytest.mark.parametrize("extra", [{}, {"extract_options": EXTRACT_OPTIONS}])
+@pytest.mark.parametrize("extra", EXTRA)
 def test_search_premier_sends_the_same_request(extra: Dict[str, Any]) -> None:
     captured = _capture([PREMIER_CALL], extra)
     assert json.dumps(captured) == json.dumps(EXPECTED_PREMIER)
