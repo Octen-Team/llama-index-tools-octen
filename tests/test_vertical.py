@@ -83,6 +83,7 @@ def test_spec_functions_list() -> None:
         "pulse_search",
         "place_search",
         "search_premier",
+        "extract",
         "current_date",
     ]
 

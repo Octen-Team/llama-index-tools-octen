@@ -4,11 +4,16 @@ EXPECTED was captured by running _capture() on llama-index-tools-octen 0.2.0
 (origin/main 4a023bc) with octen 0.12.0, its minimum supported version; this branch
 runs the same inputs with octen 0.13.0. A difference means a 0.2.0 function now sends
 a different request, whether from this package or from the octen upgrade.
+
+EXPECTED_PREMIER was captured the same way on 58148b3, before extract was added.
+Every capture runs twice: as given, and with extract_options set as well.
 """
 
 import json
 from typing import Any, Dict, List, Tuple
 from unittest.mock import patch
+
+import pytest
 
 from llama_index.tools.octen import OctenToolSpec
 
@@ -202,9 +207,77 @@ EXPECTED: Dict[str, Call] = {
 }
 
 
-def _capture() -> Dict[str, Call]:
+PREMIER_CALL = (
+    "search_premier",
+    {
+        "timeout": 9.0,
+        "search_premier_options": {
+            "count": 3,
+            "result_type": "dynamic",
+            "highlight": {"enable": True, "max_tokens": 600},
+            "full_content": {"enable": True, "max_tokens": 1000},
+            "include_text": ["kafka"],
+            "exclude_text": ["ads"],
+            "language": ["en", "de"],
+            "time_basis": "published",
+            "start_time": "2025-01-01T00:00:00Z",
+            "end_time": "2025-06-30T23:59:59+08:00",
+            "format": "markdown",
+            "safesearch": "off",
+            "include_images": True,
+            "timeout": 20,
+        },
+    },
+    {"include_domains": ["a.com"], "exclude_domains": ["b.com"]},
+)
+
+# Captured from 58148b3; see the module docstring.
+EXPECTED_PREMIER: Dict[str, Call] = {
+    "search_premier": (
+        "POST",
+        "/search-premier",
+        {
+            "count": 3,
+            "include_domains": ["a.com"],
+            "exclude_domains": ["b.com"],
+            "language": ["en", "de"],
+            "time_basis": "published",
+            "start_time": "2025-01-01T00:00:00Z",
+            "end_time": "2025-06-30T23:59:59+08:00",
+            "highlight": {"enable": True, "max_tokens": 600},
+            "full_content": {"enable": True, "max_tokens": 1000},
+            "query": "q",
+            "result_type": "dynamic",
+            "include_text": ["kafka"],
+            "exclude_text": ["ads"],
+            "format": "markdown",
+            "safesearch": "off",
+            "include_images": True,
+        },
+        20,
+    ),
+}
+
+EXTRACT_OPTIONS = {
+    "mode": "advanced",
+    "format": "text",
+    "max_age_seconds": 600,
+    "timeout": 60,
+    "include_images": True,
+    "include_videos": True,
+    "include_audio": True,
+    "include_links": {"max_links": 10},
+    "max_urls": 20,
+    "request_timeout": 120,
+}
+
+
+def _capture(
+    calls_in: List[Tuple[str, Dict[str, Any], Dict[str, Any]]],
+    extra: Dict[str, Any],
+) -> Dict[str, Call]:
     calls: Dict[str, Call] = {}
-    for function, spec_kwargs, args in _calls():
+    for function, spec_kwargs, args in calls_in:
         seen: List[Call] = []
 
         def fake(
@@ -218,7 +291,7 @@ def _capture() -> Dict[str, Call]:
             seen.append((method, endpoint, json, timeout))
             return dict(CANNED)
 
-        spec = OctenToolSpec(api_key="k", verbose=False, **spec_kwargs)
+        spec = OctenToolSpec(api_key="k", verbose=False, **spec_kwargs, **extra)
         with patch("octen.core.http_client.HTTPClient.request", fake):
             getattr(spec, function)("q", **args)
         assert len(seen) == 1, (function, seen)
@@ -226,6 +299,13 @@ def _capture() -> Dict[str, Call]:
     return calls
 
 
-def test_existing_functions_send_the_same_requests() -> None:
+@pytest.mark.parametrize("extra", [{}, {"extract_options": EXTRACT_OPTIONS}])
+def test_existing_functions_send_the_same_requests(extra: Dict[str, Any]) -> None:
     # json.dumps keeps key order, so a reordered body fails too.
-    assert json.dumps(_capture()) == json.dumps(EXPECTED)
+    assert json.dumps(_capture(_calls(), extra)) == json.dumps(EXPECTED)
+
+
+@pytest.mark.parametrize("extra", [{}, {"extract_options": EXTRACT_OPTIONS}])
+def test_search_premier_sends_the_same_request(extra: Dict[str, Any]) -> None:
+    captured = _capture([PREMIER_CALL], extra)
+    assert json.dumps(captured) == json.dumps(EXPECTED_PREMIER)
