@@ -36,9 +36,6 @@ has both new endpoints. One thing changes:
   - `count` (1-10), `safesearch` (`"off"` or `"strict"`) and `timeout` come from
     the new keyword-only constructor argument `image_search_options`, checked
     when the spec is built.
-  - Each result in `data["results"]` keeps `title`, `url`, `source_page`,
-    `description`, `width` and `height`; `thumbnail` and other fields are left
-    out.
 - `design_search`: Design Search, finds design references: screenshots of web
   pages, page sections, app screens and slides with their design values, plus
   web results on the same query.
@@ -52,12 +49,11 @@ has both new endpoints. One thing changes:
     language and time filters) and `timeout` come from the new keyword-only
     constructor argument `design_search_options`, checked when the spec is
     built. Left out, the API defaults apply, which return `design_facts` and a
-    `snippet` for each image that has reusable code.
-  - Image results keep every field but `thumbnail`, including `group` with its
-    `group_id`; web results keep `title`, `url`, `highlight`, `full_content`,
-    `authors` and `time_published`.
-- Both return `{"data", "request_id", "warning"?}` and split errors as the
-  other functions do. Numbers and booleans in both options dicts are checked
+    `snippet` of up to 5000 tokens for each image that has reusable code; turn
+    them off with `images={"design_facts": False, "snippet": {"enable": False}}`
+    or shorten snippets with `snippet.max_tokens`.
+- Both return `{"data", "request_id", "warning"?}`, with `data` as the API
+  returns it, and split errors as the other functions do. Numbers and booleans in both options dicts are checked
   strictly: `True` or `5.0` is not accepted as a count.
 
 ## 0.3.0

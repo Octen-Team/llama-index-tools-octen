@@ -550,20 +550,16 @@ IMAGE_RESULT = {
 }
 
 
-def test_image_output_trimmed(octen_cls: MagicMock) -> None:
+def test_image_output_is_data_unchanged(octen_cls: MagicMock) -> None:
+    # Same as the other functions: data as the API returns it, nothing dropped.
     sparse = {"url": "https://i.example.com/b.jpg", "title": None}
-    _sdk(octen_cls, "image_search").return_value = _image_response(
-        [IMAGE_RESULT, sparse], meta={"warning": "partial", "usage": {"num_search_queries": 1}},
-        request_id="rid-7",
+    data = {"results": [IMAGE_RESULT, sparse], "unknown_top_level": 1}
+    _sdk(octen_cls, "image_search").return_value = octen.ImageSearchResponse(
+        code=0, msg="success", data=data,
+        meta={"warning": "partial", "usage": {"num_search_queries": 1}}, request_id="rid-7",
     )
     assert _spec().image_search("interior") == {
-        "data": {"results": [
-            {k: IMAGE_RESULT[k] for k in
-             ("title", "url", "source_page", "description", "width", "height")},
-            {"url": "https://i.example.com/b.jpg"},
-        ]},
-        "request_id": "rid-7",
-        "warning": "partial",
+        "data": data, "request_id": "rid-7", "warning": "partial"
     }
 
 
@@ -577,7 +573,7 @@ def test_image_output_without_results_key(octen_cls: MagicMock) -> None:
     _sdk(octen_cls, "image_search").return_value = octen.ImageSearchResponse(
         data={}, request_id="r"
     )
-    assert _spec().image_search("q") == {"data": {"results": []}, "request_id": "r"}
+    assert _spec().image_search("q") == {"data": {}, "request_id": "r"}
 
 
 DESIGN_IMAGE = {
@@ -608,18 +604,14 @@ DESIGN_WEB = {
 }
 
 
-def test_design_output_trimmed(octen_cls: MagicMock) -> None:
-    data = {"query": "deck", "images": [DESIGN_IMAGE], "results": [DESIGN_WEB]}
+def test_design_output_is_data_unchanged(octen_cls: MagicMock) -> None:
+    data = {"query": "deck", "images": [DESIGN_IMAGE], "results": [DESIGN_WEB],
+            "specs": {"future": True}}
     _sdk(octen_cls, "design_search").return_value = _design_response(
         data, meta={"warning": "w", "latency": 3}, request_id="rid-9"
     )
-    expected_image = {k: v for k, v in DESIGN_IMAGE.items() if k != "thumbnail"}
-    expected_web = {k: DESIGN_WEB[k] for k in
-                    ("title", "url", "highlight", "full_content", "authors", "time_published")}
     assert _spec().design_search("deck") == {
-        "data": {"query": "deck", "images": [expected_image], "results": [expected_web]},
-        "request_id": "rid-9",
-        "warning": "w",
+        "data": data, "request_id": "rid-9", "warning": "w"
     }
 
 
@@ -627,10 +619,9 @@ def test_design_output_keeps_only_returned_parts(octen_cls: MagicMock) -> None:
     # images.enable / web_search.enable false: the API leaves that list out.
     _sdk(octen_cls, "design_search").return_value = _design_response({"images": [DESIGN_IMAGE]})
     result = _spec().design_search(group_id=GROUP_ID)
-    assert set(result["data"]) == {"images"}
-    assert result["data"]["images"][0]["group"]["group_id"] == GROUP_ID
+    assert result["data"] == {"images": [DESIGN_IMAGE]}
     _sdk(octen_cls, "design_search").return_value = _design_response({"results": None})
-    assert _spec().design_search("q")["data"] == {"results": []}
+    assert _spec().design_search("q")["data"] == {"results": None}
 
 
 # --- errors -----------------------------------------------------------------------

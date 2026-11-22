@@ -307,42 +307,6 @@ _DESIGN_SEARCH_DESCRIPTION = (
     "may then be left out. Show an image by its url and cite its source_page."
 )
 
-# Fields kept for the model; thumbnails and page media are left out.
-_IMAGE_RESULT_FIELDS = ("title", "url", "source_page", "description", "width", "height")
-_DESIGN_IMAGE_FIELDS = (
-    "type", "title", "description", "url", "source_page", "width", "height",
-    "group", "design_facts", "snippet",
-)
-_DESIGN_WEB_FIELDS = (
-    "title", "url", "highlight", "full_content", "authors", "time_published",
-)
-
-
-def _pick(item: Any, fields: Tuple[str, ...]) -> Any:
-    if not isinstance(item, dict):
-        return item
-    return {k: item[k] for k in fields if item.get(k) is not None}
-
-
-def _trim_image_data(data: Dict[str, Any]) -> Dict[str, Any]:
-    results = data.get("results") or []
-    return {"results": [_pick(r, _IMAGE_RESULT_FIELDS) for r in results]}
-
-
-def _trim_design_data(data: Dict[str, Any]) -> Dict[str, Any]:
-    trimmed: Dict[str, Any] = {}
-    if data.get("query") is not None:
-        trimmed["query"] = data["query"]
-    if "images" in data:
-        trimmed["images"] = [_pick(i, _DESIGN_IMAGE_FIELDS) for i in data["images"] or []]
-    if "results" in data:
-        trimmed["results"] = [_pick(r, _DESIGN_WEB_FIELDS) for r in data["results"] or []]
-    return trimmed
-
-
-_TRIM = {"image_search": _trim_image_data, "design_search": _trim_design_data}
-
-
 def _blank(value: Optional[str]) -> bool:
     return value is None or not value.strip()
 
@@ -1506,10 +1470,7 @@ class OctenToolSpec(BaseToolSpec):
 
         extra = getattr(response, "model_extra", None) or {}
         request_id = extra.get("request_id", getattr(response, "request_id", None))
-        data = response.data
-        if endpoint in _TRIM:
-            data = _TRIM[endpoint](data)
-        result: Dict[str, Any] = {"data": data, "request_id": request_id}
+        result: Dict[str, Any] = {"data": response.data, "request_id": request_id}
         warning = getattr(response, "warning", None)
         if warning:
             result["warning"] = warning

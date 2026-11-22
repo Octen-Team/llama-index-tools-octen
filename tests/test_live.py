@@ -439,7 +439,6 @@ def _check_images(name: str, result: Dict[str, Any]) -> List[Dict[str, Any]]:
     print(f"{name}: {len(items)} results, hosts={_image_hosts(items)}")
     for item in items:
         assert item.get("url", "").startswith("http"), item
-        assert "thumbnail" not in item, item
     return items
 
 
@@ -510,7 +509,6 @@ def _check_design(name: str, result: Dict[str, Any]) -> Dict[str, Any]:
           f"groups={[(i.get('group') or {}).get('group_id', '')[:24] for i in images or []]}")
     for image in images or []:
         assert image.get("url", "").startswith("http") and image.get("type"), image
-        assert "thumbnail" not in image, image
     return data
 
 
