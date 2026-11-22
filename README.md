@@ -162,6 +162,43 @@ for item in result["data"]["results"]:
 - `data` keeps every result the API returns, failed ones included; match results to inputs by each item's `url`, not by position. A URL that could not be read has `status: "failed"` and an `error_message`, and is not billed; the others still return content. Content is not truncated. Each successful item has `resolved_mode`, the mode it was billed at; with `verbose=True` the request's usage counts (`successful_by_mode`) are printed.
 - Errors are split as described for the vertical functions below.
 
+## Image Search and Design Search
+
+`image_search` finds images on the web by a text query or by a reference image. The model passes exactly one of `query` (text) or `image_url` (a public http(s) URL of an image already on the web), plus optional `include_domains` and `exclude_domains`, matched against each result's `source_page`. Base64 image input is not offered to the model, as it is too large for a model to produce; call the `octen` SDK's `image_search.search` directly for that.
+
+`design_search` finds design references: each image result is a screenshot of a web page, page section, app screen or slide with its design values, and web results on the same query come back alongside. The model sets `query` and, to get every image of a web page or deck in order, `group_id`, taken from the `group` of an earlier result; `query` is required unless `group_id` is set.
+
+```python
+tool = OctenToolSpec(
+    image_search_options={"count": 5, "safesearch": "strict"},
+    design_search_options={
+        "images": {"count": 5, "design_facts": True, "snippet": {"enable": False}},
+        "web_search": {"count": 3},
+    },
+)
+
+result = tool.image_search("golden retriever puppy", include_domains=["wikimedia.org"])
+for r in result["data"]["results"]:
+    print(r["url"], r["source_page"])
+
+result = tool.design_search("pricing section for a SaaS landing page")
+grouped = [i for i in result["data"]["images"] if i.get("group")]
+if grouped:
+    deck = tool.design_search(group_id=grouped[0]["group"]["group_id"])
+```
+
+| Option | Values | Default (when left out) |
+|---|---|---|
+| `image_search_options["count"]` | 1-10 | not sent; the API returns 5 |
+| `image_search_options["safesearch"]` | `"off"` or `"strict"` | not sent; the API uses `strict` |
+| `design_search_options["images"]` | `enable`, `count` (1-100), `design_facts`, `snippet` (`enable`, `max_tokens` 100-100000); not `group_id`, which the model sets | not sent; the API returns 5 images with `design_facts`, and a `snippet` (up to 5000 tokens) for each image that has reusable code |
+| `design_search_options["web_search"]` | `enable`, `count` (1-100), `highlight`, `full_content` (only `enable` and `max_tokens`), `include_domains`, `exclude_domains`, `language`, `time_basis`, `time_range`, `start_time`, `end_time` (RFC 3339) | not sent; the API returns 5 web results with highlights |
+| `timeout` (both) | HTTP request timeout passed to the SDK, in seconds | spec-level `timeout` |
+
+- Both inputs to `image_search`, neither, an `image_url` that is not http(s), a `design_search` call with neither `query` nor `group_id`, a query over 500 characters, or more than 10 domains is returned to the model as `{"error": ...}` before any request is sent.
+- Options are checked when the spec is built, with strict types: `True` or `5.0` is not accepted as a count.
+- `data` is trimmed for the model. Image Search results keep `title`, `url`, `source_page`, `description`, `width` and `height`. Design Search image results keep every field but `thumbnail` (`type`, `title`, `description`, `url`, `source_page`, `width`, `height`, `group`, `design_facts`, `snippet`); its web results keep `title`, `url`, `highlight`, `full_content`, `authors` and `time_published`. Return value and errors are otherwise as described for the vertical functions below.
+
 ## Broad, News, Business, Pulse and Place Search
 
 These five functions give the model only the query and filters. Billing-related options and limits, such as result counts, content options and Broad Search's `max_queries`, are set by you when you build the spec. They bound the cost of a call rather than fix it: Broad Search, for example, is billed per sub-query, and `max_queries` is an upper limit; how many sub-queries a call actually runs depends on the query.
@@ -186,6 +223,8 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 | `place_search` | `query`, `latitude`, `longitude`, `radius`, `city`, `region`, `country`, `timezone` | `places`, `web_search`, `timeout` |
 | `search_premier` | `query`, `include_domains`, `exclude_domains` | `count`, `result_type`, `highlight`, `full_content`, `include_text`, `exclude_text`, `language`, `time_basis`, `time_range`, `start_time`, `end_time`, `format`, `safesearch`, `include_images`, `timeout` |
 | `extract` | `urls`, `query` | `max_urls`, `mode`, `format`, `max_age_seconds`, `url_timeout`, `include_images`, `include_videos`, `include_audio`, `include_links`, `timeout` (see [Extract](#extract)) |
+| `image_search` | `query` or `image_url` (exactly one), `include_domains`, `exclude_domains` | `count`, `safesearch`, `timeout` (see [Image Search and Design Search](#image-search-and-design-search)) |
+| `design_search` | `query`, `group_id` | `images`, `web_search`, `timeout` |
 
 - Options you leave out are not sent, so the API defaults apply. Values are passed to the [`octen`](https://pypi.org/project/octen/) SDK as-is (`dict`s or the SDK's option models). They are checked when the spec is built: a key that is not listed for a function, or a value the SDK would reject (for example `count=1000`), raises `ValueError`. `timeout` in an options dict overrides the spec-level `timeout` for that function.
 - `time_range` is one of `day`, `week`, `month`, `year` (or `d`, `w`, `m`, `y`). `language` is a list of ISO 639-1 codes.
@@ -230,6 +269,10 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 
 - `extract`: Read web pages by URL and return their clean content, with failed URLs reported per URL.
 
+- `image_search`: Find images on the web by a text query or a reference image URL.
+
+- `design_search`: Design references (web pages, page sections, app screens, slides) with their design values, plus web results.
+
 - `current_date`: Utility for the agent to get today's date (useful for time-filtered searches).
 
 ## Configuration
@@ -248,6 +291,8 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 | `place_search_options` | `dict` | `None` | Keyword-only. Options for `place_search` |
 | `search_premier_options` | `dict` | `None` | Keyword-only. Options for `search_premier` |
 | `extract_options` | `dict` | `None` | Keyword-only. Options for `extract` |
+| `image_search_options` | `dict` | `None` | Keyword-only. Options for `image_search` |
+| `design_search_options` | `dict` | `None` | Keyword-only. Options for `design_search` |
 
 ### Retries
 

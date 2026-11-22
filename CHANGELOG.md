@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.4.0
+
+### Upgrading from 0.3.x
+
+Existing functions are unchanged: same parameters, same requests, same return
+shapes and errors. The `octen` requirement stays `>=0.13.0,<1`, which already
+has both new endpoints. One thing changes:
+
+- **`to_tool_list()` now returns thirteen tools instead of eleven.** An agent
+  built with `OctenToolSpec(...).to_tool_list()` also gets `image_search` and
+  `design_search`, and the model may call them; they have their own pricing.
+  To keep the 0.3.x tool set:
+
+  ```python
+  spec = OctenToolSpec()
+  tools = spec.to_tool_list(
+      spec_functions=[
+          f for f in spec.spec_functions if f not in ("image_search", "design_search")
+      ]
+  )
+  ```
+
+### Added
+
+- `image_search`: Image Search, finds images on the web by a text query or by
+  a reference image.
+  - The model passes exactly one of `query` (text, max 500 characters) or
+    `image_url` (a public http(s) URL of an image), plus optional
+    `include_domains` and `exclude_domains` (at most 10 each, matched against
+    each result's source page). Both inputs, neither, an `image_url` that is not
+    http(s), or a value over a limit is returned to the model before any
+    request. Base64 image input is not offered to the model; call the `octen`
+    SDK directly for it.
+  - `count` (1-10), `safesearch` (`"off"` or `"strict"`) and `timeout` come from
+    the new keyword-only constructor argument `image_search_options`, checked
+    when the spec is built.
+  - Each result in `data["results"]` keeps `title`, `url`, `source_page`,
+    `description`, `width` and `height`; `thumbnail` and other fields are left
+    out.
+- `design_search`: Design Search, finds design references: screenshots of web
+  pages, page sections, app screens and slides with their design values, plus
+  web results on the same query.
+  - The model sets `query` (max 500 characters) and, to get every image of a
+    web page or deck in order, `group_id`, taken from an earlier result's
+    `group`. `query` is required unless `group_id` is set; a call with neither
+    is returned to the model before any request.
+  - `images` (`enable`, `count` 1-100, `design_facts`, and `snippet` with
+    `enable` and `max_tokens` 100-100000; `group_id` is not accepted here),
+    `web_search` (`enable`, `count`, `highlight`, `full_content`, domain,
+    language and time filters) and `timeout` come from the new keyword-only
+    constructor argument `design_search_options`, checked when the spec is
+    built. Left out, the API defaults apply, which return `design_facts` and a
+    `snippet` for each image that has reusable code.
+  - Image results keep every field but `thumbnail`, including `group` with its
+    `group_id`; web results keep `title`, `url`, `highlight`, `full_content`,
+    `authors` and `time_published`.
+- Both return `{"data", "request_id", "warning"?}` and split errors as the
+  other functions do. Numbers and booleans in both options dicts are checked
+  strictly: `True` or `5.0` is not accepted as a count.
+
 ## 0.3.0
 
 ### Upgrading from 0.2.x
