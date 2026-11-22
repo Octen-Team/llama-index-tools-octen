@@ -245,6 +245,25 @@ def test_design_images_off_rejects_group_only_call(octen_cls: MagicMock, images:
     octen_cls.assert_not_called()
 
 
+def test_design_images_off_schema_requires_query_without_group_id() -> None:
+    schema = _tools(**IMAGES_OFF)["design_search"].metadata.fn_schema
+    json_schema = schema.model_json_schema()
+    assert list(json_schema["properties"]) == ["query"]
+    assert json_schema["required"] == ["query"]
+    assert json_schema["properties"]["query"]["maxLength"] == 500
+    assert json_schema["properties"]["query"]["description"]
+    # The default spec keeps both, neither required.
+    default = _tools()["design_search"].metadata.fn_schema.model_json_schema()
+    assert list(default["properties"]) == ["query", "group_id"] and "required" not in default
+
+
+def test_design_images_off_does_not_forward_group_id(octen_cls: MagicMock) -> None:
+    _spec(**IMAGES_OFF).design_search("pricing page", group_id=GROUP_ID)
+    _sdk(octen_cls, "design_search").assert_called_once_with(
+        query="pricing page", images={"enable": False}
+    )
+
+
 def test_design_images_off_query_still_searches(octen_cls: MagicMock) -> None:
     _spec(**IMAGES_OFF).design_search("pricing page")
     _sdk(octen_cls, "design_search").assert_called_once_with(
@@ -352,6 +371,10 @@ def test_design_wire_body() -> None:
         ({"image_url": "https://exa mple.com/photo.png"}, "http(s)"),
         ({"image_url": "https://example.com/my photo.png"}, "http(s)"),
         ({"image_url": "https://example.com/a.png\tb"}, "http(s)"),
+        ({"image_url": "\x00https://example.com/a.png"}, "http(s)"),
+        ({"image_url": "https://example.com/a\x7f.png"}, "http(s)"),
+        ({"image_url": "https://example.com/a.png\x1f"}, "http(s)"),
+        ({"image_url": "https:///example.com/a.png"}, "http(s)"),
         ({"query": "x" * 501}, "query"),
         ({"query": "q", "include_domains": ["a.com"] * 11}, "include_domains"),
         ({"query": "q", "exclude_domains": ["a.com"] * 11}, "exclude_domains"),
@@ -766,14 +789,61 @@ def test_config_errors_raise_and_log(
 def test_image_413_415_returned_to_model_with_guidance(
     octen_cls: MagicMock, caplog: Any, status: int, mentions: str
 ) -> None:
-    exc = OctenAPIError("rejected", status_code=status)
+    exc = OctenAPIError("upstream-zq9", status_code=status, request_id="rid-413")
     _sdk(octen_cls, "image_search").side_effect = exc
     with caplog.at_level(logging.ERROR, logger="llama_index.tools.octen"):
         result = _spec().image_search(image_url=IMAGE_URL)
     assert set(result) == {"error"}
-    assert result["error"].startswith(str(exc))
+    assert f"HTTP {status}" in result["error"] and "rid-413" in result["error"]
     assert mentions in result["error"]
+    assert "upstream-zq9" not in result["error"]
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+SIGNED_URL = "https://cdn.example.com/a.jpg?sig=SECRET-TOKEN&se=2026"
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # Upstream text echoing a truncated or normalized copy of the URL.
+        OctenAPIError("Payload too large for https://cdn.example.com/a.jpg?sig=SECRET-TO",
+                      status_code=413, request_id="rid-x"),
+        OctenAPIError("unsupported: HTTPS://CDN.EXAMPLE.COM/A.JPG?SIG=SECRET-TOKEN",
+                      status_code=415),
+        OctenAPIError("cannot read cdn.example.com/a.jpg%3Fsig%3DSECRET-TOKEN", status_code=422),
+        OctenAPIError("upstream failed for SECRET-TOKEN", status_code=503),
+        OctenAPIError("bad gateway SECRET-TOKEN", status_code=502),
+        OctenRateLimitError("slow down SECRET-TOKEN"),
+        OctenTimeoutError("timed out fetching SECRET-TOKEN", timeout=30, request_sent=True),
+        OctenConnectionError("reset while sending SECRET-TOKEN", request_sent=False),
+        OctenAPIError("malformed body with SECRET-TOKEN", status_code=200),
+    ],
+)
+def test_image_url_errors_never_carry_upstream_text(
+    octen_cls: MagicMock, exc: Exception
+) -> None:
+    _sdk(octen_cls, "image_search").side_effect = exc
+    error = _spec().image_search(image_url=SIGNED_URL)["error"]
+    assert "SECRET" not in error.upper() and "cdn.example.com" not in error.lower(), error
+    assert "Image Search" in error
+
+
+def test_image_url_errors_keep_billing_warning_and_status(octen_cls: MagicMock) -> None:
+    _sdk(octen_cls, "image_search").side_effect = OctenTimeoutError(timeout=30, request_sent=True)
+    assert "may already have reached the server and been billed" in _spec().image_search(
+        image_url=IMAGE_URL)["error"]
+    _sdk(octen_cls, "image_search").side_effect = OctenAPIError(
+        "x", status_code=503, request_id="rid-503")
+    error = _spec().image_search(image_url=IMAGE_URL)["error"]
+    assert "HTTP 503" in error and "rid-503" in error
+    assert "may already have" not in error
+
+
+def test_text_query_errors_keep_upstream_text(octen_cls: MagicMock) -> None:
+    exc = OctenAPIError("bad filter", status_code=400)
+    _sdk(octen_cls, "image_search").side_effect = exc
+    assert _spec().image_search("cats")["error"] == str(exc)
 
 
 @pytest.mark.parametrize(

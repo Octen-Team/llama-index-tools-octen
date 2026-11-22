@@ -307,6 +307,14 @@ _DESIGN_SEARCH_DESCRIPTION = (
     "most {limit} per call (total says how many the group has); query may then be left "
     "out. Show an image by its url and cite its source_page."
 )
+class _DesignWebOnlyArgs(BaseModel):
+    query: str = Field(
+        max_length=500,
+        description='What to find design references and articles for, e.g. "pricing '
+        'section for a SaaS landing page". Max 500 chars.',
+    )
+
+
 # Used when the developer sets images.enable to False: only web results come back.
 _DESIGN_WEB_ONLY_DESCRIPTION = (
     "Search the web for design references and articles on a design question: returns web "
@@ -323,8 +331,9 @@ def _blank(value: Optional[str]) -> bool:
 
 
 def _is_http_url(value: str) -> bool:
-    # urlparse silently drops tabs and newlines, so whitespace is checked first.
-    if any(c.isspace() for c in value):
+    # urlparse silently drops tabs, newlines and leading control characters, so they
+    # are checked first.
+    if any(c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F for c in value):
         return False
     try:
         parsed = urlparse(value)
@@ -338,6 +347,25 @@ def _image_rejected(exc: Exception) -> bool:
     from octen import OctenAPIError
 
     return isinstance(exc, OctenAPIError) and exc.status_code in (413, 415)
+
+
+def _image_url_error(exc: Exception, rejected: bool, message: Optional[str]) -> str:
+    """A fixed message for an image-URL call: upstream text may echo the (signed) URL."""
+    status = getattr(exc, "status_code", None)
+    request_id = getattr(exc, "request_id", None)
+    what = f"HTTP {status}" if status else type(exc).__name__
+    if request_id:
+        what += f", request_id {request_id}"
+    if rejected:
+        return f"Image Search rejected the image ({what}). {_IMAGE_REJECTED}"
+    text = (
+        f"Image Search by image URL failed ({what}). The upstream message is left out "
+        "because it may contain the image URL. Try again later, try another image URL, "
+        "or search by text."
+    )
+    if message is not None and message.endswith(_MAY_HAVE_BEEN_SENT):
+        text += f" {_MAY_HAVE_BEEN_SENT}"
+    return text
 
 
 # Image Search's 413 / 415 come from the image the model chose, so the model can retry.
@@ -810,7 +838,7 @@ class OctenToolSpec(BaseToolSpec):
             return ToolMetadata(
                 name=fn_name,
                 description=_DESIGN_WEB_ONLY_DESCRIPTION,
-                fn_schema=_DesignSearchArgs,
+                fn_schema=_DesignWebOnlyArgs,
             )
         if fn_name == "design_search":
             images = _as_dict(self._options["design_search_options"].get("images"))
@@ -1403,7 +1431,7 @@ class OctenToolSpec(BaseToolSpec):
                 "error": "Got neither query nor image_url. Nothing was searched. Pass query "
                 "(text describing the images) or image_url (a public image URL), exactly one."
             }
-        url = str(image_url).strip() if has_url else None
+        url = str(image_url).strip(" \t\n\r\f\v") if has_url else None
         if url is not None and not _is_http_url(url):
             return {
                 "error": "image_url must be a public http(s) URL of an image. "
@@ -1448,11 +1476,13 @@ class OctenToolSpec(BaseToolSpec):
         except ValidationError as exc:
             return {"error": f"Invalid arguments: {_describe(exc)}"}
         has_query, has_group = not _blank(query), not _blank(group_id)
-        if has_group and not has_query and self._design_images_off():
-            return {
-                "error": "Image results are turned off for this tool, so group_id cannot be "
-                "used. Nothing was searched. Pass query instead."
-            }
+        if has_group and self._design_images_off():
+            if not has_query:
+                return {
+                    "error": "Image results are turned off for this tool, so group_id cannot "
+                    "be used. Nothing was searched. Pass query instead."
+                }
+            has_group = False  # meaningless without image results, so not sent
         if not has_query and not has_group:
             return {
                 "error": "Got neither query nor group_id. Nothing was searched. Pass query "
@@ -1512,8 +1542,12 @@ class OctenToolSpec(BaseToolSpec):
                 response = getattr(client.search, endpoint)(**kwargs)
         except Exception as exc:
             message = _classify(exc)
-            if endpoint == "image_search" and _image_rejected(exc):
-                message = f"{exc}. {_IMAGE_REJECTED}"
+            if endpoint == "image_search":
+                rejected = _image_rejected(exc)
+                if "image_url" in kwargs and (rejected or message is not None):
+                    message = _image_url_error(exc, rejected, message)
+                elif rejected:
+                    message = f"{exc}. {_IMAGE_REJECTED}"
             if message is None:
                 # Agent workflows turn any tool exception into text for the
                 # model, so log it where the developer will see it.

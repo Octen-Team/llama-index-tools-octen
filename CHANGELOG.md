@@ -38,7 +38,9 @@ has both new endpoints. One thing changes:
     when the spec is built.
   - An HTTP 413 (image too large) or 415 (unsupported image format) is returned
     to the model with a suggestion to try a smaller image in a supported format
-    or a text query, instead of being raised.
+    or a text query, instead of being raised. For a call by `image_url`, errors
+    handed to the model are fixed messages with the status and request id, without
+    the upstream error text.
 - `design_search`: Design Search, finds design references: screenshots of web
   pages, page sections, app screens and slides with their design values, plus
   web results on the same query.
@@ -47,8 +49,9 @@ has both new endpoints. One thing changes:
     order, up to `images.count` (the API default is 5); the tool description
     states that limit. `query` is required unless `group_id` is set; a call with
     neither is returned to the model before any request. With
-    `images={"enable": False}` the description offers no `group_id` lookup and a
-    `group_id` call without `query` is returned to the model.
+    `images={"enable": False}` the description and argument schema offer no
+    `group_id` and require `query`; a `group_id` call without `query` is returned
+    to the model, and one with `query` does not forward `group_id`.
   - `images` (`enable`, `count` 1-100, `design_facts`, and `snippet` with
     `enable` and `max_tokens` 100-100000; `group_id` is not accepted here),
     `web_search` (`enable`, `count`, `highlight`, `full_content`, domain,
