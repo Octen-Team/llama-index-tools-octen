@@ -366,6 +366,16 @@ def _is_ip_address(host: str) -> bool:
     return True
 
 
+def _outside_query(value: str) -> str:
+    """The raw URL without its query, the one part the API keeps unvalidated.
+
+    As in Go's net/url, the fragment starts at the first "#" and the query at the first
+    "?" before it; the original characters are returned, not a re-assembled copy.
+    """
+    before, hash_mark, fragment = value.partition("#")
+    return before.partition("?")[0] + hash_mark + fragment
+
+
 def _is_https_url(value: str) -> bool:
     """The API's rule: an absolute https URL whose host is a domain name, not an IP."""
     # urlparse silently drops tabs, newlines and leading control characters, so ASCII
@@ -374,9 +384,7 @@ def _is_https_url(value: str) -> bool:
         return False
     try:
         parsed = urlparse(value)
-        # Escapes are checked in the host and path only: the API's URL parser keeps the
-        # query and fragment raw, so a bare % there is accepted.
-        if _BAD_PERCENT.search(parsed.netloc + parsed.path + parsed.params):
+        if _BAD_PERCENT.search(_outside_query(value)):
             return False
         parsed.port  # raises on a non-numeric or out-of-range port
         return (

@@ -258,11 +258,12 @@ def test_image_url_with_surrounding_ascii_whitespace_rejected(octen_cls: MagicMo
     [
         "https://example.com/photo.png?label=50%",
         "https://example.com/photo.png?q=%zz&r=%2",
-        "https://example.com/photo.png#50%",
+        "https://example.com/photo.png?q=%zz#ok",
+        "https://example.com/photo.png#50%25",
     ],
 )
-def test_percent_in_query_or_fragment_sent_unchanged(octen_cls: MagicMock, url: str) -> None:
-    # The API's URL parser keeps the query and fragment raw; only host and path escapes count.
+def test_bare_percent_in_query_sent_unchanged(octen_cls: MagicMock, url: str) -> None:
+    # Go's net/url, as the API uses it, keeps only the query raw (checked 2026-11-22).
     _spec().image_search(image_url=url)
     _sdk(octen_cls, "image_search").assert_called_once_with(image_url=url)
 
@@ -274,9 +275,15 @@ def test_percent_in_query_or_fragment_sent_unchanged(octen_cls: MagicMock, url: 
         "https://example.com/50%/photo.png",
         "https://example.com/photo%2.png?label=ok",
         "https://example.com/photo.png;v=%zz",
+        "https://example.com/photo.png#50%",
+        "https://example.com/photo.png?ok=1#50%",
+        "https://example.com/photo%;ab",
+        "https://example.com/a%zz.png",
+        "https://ex%zzample.com/a.png",
+        "https://example.com/a.png#frag?q=%zz",
     ],
 )
-def test_bad_percent_in_host_or_path_rejected(octen_cls: MagicMock, url: str) -> None:
+def test_bad_percent_outside_the_query_rejected(octen_cls: MagicMock, url: str) -> None:
     assert "https URL with a domain name" in _spec().image_search(image_url=url)["error"]
     octen_cls.assert_not_called()
 
