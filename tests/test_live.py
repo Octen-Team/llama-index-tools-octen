@@ -522,7 +522,7 @@ def _base_url(image: Dict[str, Any]) -> str:
     return str(image.get("url", "")).split("?")[0]
 
 
-def test_live_design_search_options_and_group_follow_up() -> None:
+def test_live_design_search_image_options() -> None:
     # Same query and image count; the control turns design facts and snippets on. The web
     # options differ only in full_content.
     on = {"images": {"count": 3, "design_facts": True, "snippet": {"enable": True}}}
@@ -552,26 +552,32 @@ def test_live_design_search_options_and_group_follow_up() -> None:
     assert turned_off["results"], turned_off
     assert all(r.get("full_content") for r in turned_off["results"]), turned_off["results"]
 
-    grouped = [i for i in control["images"] if (i.get("group") or {}).get("total", 0) >= 3]
+
+def test_live_design_search_group_follow_up_respects_count() -> None:
+    # Request fewer images than the group has and fewer than the API default (5),
+    # so a dropped images.count would return more than requested.
+    seeds = _check_design(
+        "design group seed",
+        _spec(design_search_options={"images": {"count": 3}}).design_search(DESIGN_QUERY),
+    )
+    grouped = [i for i in seeds["images"] if (i.get("group") or {}).get("total", 0) >= 3]
     assert grouped, "no image from a group of 3 or more: pick another DESIGN_QUERY"
     seed = grouped[0]
     group_id, position, total = (seed["group"][k] for k in ("group_id", "position", "total"))
-    requested = 100
+    requested = 2
     follow = _check_design(
-        "design group_id",
+        "design group_id count=2",
         _spec(design_search_options={"images": {"count": requested}}).design_search(
             group_id=group_id
         ),
     )
     members = follow["images"]
-    # The ordered prefix of the group, up to the requested image count.
-    expected = min(total, requested)
     ids = [i["group"]["group_id"] for i in members]
     positions = [i["group"]["position"] for i in members]
     print(f"group total={total} seed position={position} positions={positions}")
-    assert ids == [group_id] * expected, ids
-    assert positions == list(range(1, expected + 1)), positions
-    if position <= expected:
+    assert ids == [group_id] * requested, ids
+    assert positions == [1, 2], positions
+    if position <= requested:
         same_slot = [i for i in members if i["group"]["position"] == position]
         assert [_base_url(i) for i in same_slot] == [_base_url(seed)], (same_slot, seed)
 

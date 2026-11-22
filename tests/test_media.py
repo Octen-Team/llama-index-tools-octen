@@ -380,6 +380,20 @@ def test_design_wire_body() -> None:
         ({"image_url": "https://example.com\\a.png"}, "http(s)"),
         ({"image_url": "https://ex<am>ple.com/a.png"}, "http(s)"),
         ({"image_url": 'https://exa"mple.com/a.png'}, "http(s)"),
+        ({"image_url": "https://exa%zzmple.com/a.png"}, "http(s)"),
+        ({"image_url": "https://exa%2mple.com/a.png"}, "http(s)"),
+        ({"image_url": "https://example.com/a%2.png"}, "http(s)"),
+        ({"image_url": "https://example.com/a.png?x=%"}, "http(s)"),
+        ({"image_url": "https://a@b@example.com/a.png"}, "http(s)"),
+        ({"image_url": "https://u[1]@example.com/a.png"}, "http(s)"),
+        ({"image_url": "https://[::1/a.png"}, "http(s)"),
+        ({"image_url": "https://[zz::1]/a.png"}, "http(s)"),
+        ({"image_url": "https://[1:2:3]/a.png"}, "http(s)"),
+        ({"image_url": "https://[12345::]/a.png"}, "http(s)"),
+        ({"image_url": "https://[::1]x/a.png"}, "http(s)"),
+        ({"image_url": "https://ex]ample.com/a.png"}, "http(s)"),
+        ({"image_url": "https://example.com:80:90/a.png"}, "http(s)"),
+        ({"image_url": "https://exa:mple.com:80/a.png"}, "http(s)"),
         ({"query": "x" * 501}, "query"),
         ({"query": "q", "include_domains": ["a.com"] * 11}, "include_domains"),
         ({"query": "q", "exclude_domains": ["a.com"] * 11}, "exclude_domains"),
@@ -834,8 +848,20 @@ def test_image_url_errors_never_carry_upstream_text(
     assert "Image Search" in error
 
 
+def test_authority_checks_ip_literals_itself() -> None:
+    # Older Python patch releases' urlparse does not validate bracketed hosts.
+    from llama_index.tools.octen.base import _valid_authority
+
+    assert _valid_authority("[2001:db8::1]:443") and _valid_authority("u@[::1]")
+    for netloc in ("[1:2:3]", "[12345::]", "[::1", "[]"):
+        assert not _valid_authority(netloc), netloc
+
+
 def test_image_url_accepts_authority_forms(octen_cls: MagicMock) -> None:
     for url in ("https://user:pw@example.com:8443/a.png", "https://[2001:db8::1]/a.png",
+                "https://u:p@[2001:db8::1]:443/a.png", "https://[::ffff:192.0.2.1]/a.png",
+                "https://192.0.2.1:8080/a.png", "https://example.com:/a.png",
+                "https://us%40er@example.com/a.png", "https://ex%41mple.com/a.png",
                 "https://xn--bcher-kva.example/a.png", "https://b\u00fccher.example/a.png",
                 "https://example.com/a%20b.png?x=1#f"):
         assert "error" not in _spec().image_search(image_url=url), url
@@ -867,7 +893,7 @@ def test_image_url_raised_errors_are_sanitized(
     assert getattr(error, "status_code", None) == getattr(exc, "status_code", None)
     assert getattr(error, "request_id", None) == getattr(exc, "request_id", None)
     assert getattr(error, "response_data", None) is None
-    assert error.__cause__ is None and error.__suppress_context__
+    assert error.__cause__ is None and error.__context__ is None
     rendered = [str(error), repr(error), str(error.args), caplog.text,
                 str(getattr(error, "errors", ""))]
     for text in rendered:

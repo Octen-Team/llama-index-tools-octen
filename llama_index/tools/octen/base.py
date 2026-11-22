@@ -2,6 +2,7 @@
 
 import copy
 import datetime
+import ipaddress
 import itertools
 import logging
 import math
@@ -330,8 +331,25 @@ def _blank(value: Optional[str]) -> bool:
     return value is None or not value.strip()
 
 
-# RFC 3986 authority characters; non-ASCII is allowed for internationalized host names.
-_AUTHORITY = re.compile(r"[A-Za-z0-9\-._~%!$&'()*+,;=:@\[\]\u0080-\U0010FFFF]+")
+# RFC 3986 authority: [userinfo "@"] host [":" port]. Non-ASCII is allowed in names
+# for internationalized hosts; an IP literal is checked with ipaddress.
+_NAME = r"(?:[A-Za-z0-9\-._~!$&'()*+,;=\u0080-\U0010FFFF]|%[0-9A-Fa-f]{2})"
+_AUTHORITY = re.compile(
+    rf"(?:(?:{_NAME}|:)*@)?(?:{_NAME}+|\[(?P<ip>[0-9A-Fa-f:.]+)\])(?::[0-9]*)?"
+)
+_BAD_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
+
+
+def _valid_authority(netloc: str) -> bool:
+    match = _AUTHORITY.fullmatch(netloc)
+    if match is None:
+        return False
+    if match.group("ip") is not None:
+        try:
+            ipaddress.IPv6Address(match.group("ip"))
+        except ValueError:
+            return False
+    return True
 
 
 def _is_http_url(value: str) -> bool:
@@ -339,13 +357,15 @@ def _is_http_url(value: str) -> bool:
     # are checked first.
     if any(c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F for c in value):
         return False
+    if _BAD_PERCENT.search(value):  # each % must start a two-hex-digit escape
+        return False
     try:
         parsed = urlparse(value)
         parsed.port  # raises on a non-numeric or out-of-range port
         return (
             parsed.scheme.lower() in ("http", "https")
             and bool(parsed.hostname)
-            and _AUTHORITY.fullmatch(parsed.netloc) is not None
+            and _valid_authority(parsed.netloc)
         )
     except ValueError:  # e.g. "Invalid IPv6 URL" for an unclosed bracket
         return False
@@ -1563,6 +1583,7 @@ class OctenToolSpec(BaseToolSpec):
 
     def _call(self, endpoint: str, kwargs: Dict[str, Any], subject: str) -> Dict[str, Any]:
         """Send one request and shape the result for the model."""
+        sanitized: Optional[Exception] = None
         client = self._get_client()
         try:
             if endpoint == "place_search":
@@ -1582,17 +1603,21 @@ class OctenToolSpec(BaseToolSpec):
                 elif rejected:
                     message = f"{exc}. {_IMAGE_REJECTED}"
             if message is None and endpoint == "image_search" and "image_url" in kwargs:
-                clean = _sanitized(exc)
-                logger.error("%s raised %s: %s", endpoint, type(clean).__name__, clean)
-                raise clean from None
-            if message is None:
+                sanitized = _sanitized(exc)
+                logger.error("%s raised %s: %s", endpoint, type(sanitized).__name__, sanitized)
+            elif message is None:
                 # Agent workflows turn any tool exception into text for the
                 # model, so log it where the developer will see it.
                 logger.error("%s raised %s: %s", endpoint, type(exc).__name__, exc)
                 raise
-            return {"error": message}
+            else:
+                return {"error": message}
         finally:
             client.close()
+        if sanitized is not None:
+            # Raised outside the handler, so neither __cause__ nor __context__ holds
+            # the original exception and its upstream text.
+            raise sanitized from None
 
         extra = getattr(response, "model_extra", None) or {}
         request_id = extra.get("request_id", getattr(response, "request_id", None))
