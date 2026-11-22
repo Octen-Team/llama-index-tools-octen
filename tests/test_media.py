@@ -165,6 +165,42 @@ def test_image_url_input(octen_cls: MagicMock) -> None:
     _sdk(octen_cls, "image_search").assert_called_once_with(image_url=IMAGE_URL)
 
 
+def test_image_domain_generators_reach_the_sdk_as_lists(octen_cls: MagicMock) -> None:
+    # A one-shot iterable must not be used up by validation and forwarded empty.
+    _spec().image_search(
+        "q",
+        include_domains=(d for d in ["a.com", "b.com"]),
+        exclude_domains=iter(["c.com"]),
+    )
+    _sdk(octen_cls, "image_search").assert_called_once_with(
+        query="q", include_domains=["a.com", "b.com"], exclude_domains=["c.com"]
+    )
+
+
+def test_image_domain_generator_over_the_limit_rejected(octen_cls: MagicMock) -> None:
+    result = _spec().image_search("q", include_domains=(f"d{i}.com" for i in range(11)))
+    assert "include_domains" in result["error"]
+    octen_cls.assert_not_called()
+
+
+def test_image_endless_domain_iterator_read_only_past_the_limit(octen_cls: MagicMock) -> None:
+    import itertools
+
+    read: List[int] = []
+
+    def endless() -> Any:
+        for i in itertools.count():
+            read.append(i)
+            if i > 100:  # a cap for this test only; the tool must stop long before
+                raise AssertionError("read past the limit")
+            yield f"d{i}.com"
+
+    result = _spec().image_search("q", exclude_domains=endless())
+    assert "exclude_domains" in result["error"]
+    assert len(read) == 11
+    octen_cls.assert_not_called()
+
+
 def test_image_unset_options_not_sent(octen_cls: MagicMock) -> None:
     _spec().image_search("q")
     _sdk(octen_cls, "image_search").assert_called_once_with(query="q")

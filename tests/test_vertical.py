@@ -206,6 +206,32 @@ def test_developer_options_forwarded(
     octen_cls.assert_called_once_with(api_key="k", retry_after_send=False)
 
 
+@pytest.mark.parametrize("function", FILTERED)
+def test_list_filter_generators_reach_the_sdk_as_lists(
+    octen_cls: MagicMock, function: str
+) -> None:
+    # A one-shot iterable must not be used up by validation and forwarded empty.
+    getattr(_spec(), function)(
+        "q",
+        include_domains=(d for d in ["a.com", "b.com"]),
+        exclude_domains=iter(["c.com"]),
+        language=(code for code in ["en"]),
+    )
+    _sdk_method(octen_cls, function).assert_called_once_with(
+        query="q", include_domains=["a.com", "b.com"], exclude_domains=["c.com"],
+        language=["en"],
+    )
+
+
+def test_premier_domain_generators_reach_the_sdk_as_lists(octen_cls: MagicMock) -> None:
+    _spec().search_premier(
+        "q", include_domains=(d for d in ["a.com"]), exclude_domains=iter(["b.com"])
+    )
+    _sdk_method(octen_cls, "search_premier").assert_called_once_with(
+        query="q", include_domains=["a.com"], exclude_domains=["b.com"]
+    )
+
+
 @pytest.mark.parametrize("function", NEW_FUNCTIONS)
 def test_unset_options_not_sent(octen_cls: MagicMock, function: str) -> None:
     getattr(_spec(), function)("q")

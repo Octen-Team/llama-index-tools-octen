@@ -10,7 +10,7 @@ import math
 import os
 import re
 import warnings
-from typing import Any, Dict, FrozenSet, List, Literal, Optional, Tuple, Type
+from typing import Any, Dict, FrozenSet, Iterator, List, Literal, Optional, Tuple, Type
 from urllib.parse import urlparse
 
 from llama_index.core.bridge.pydantic import BaseModel, Field, ValidationError
@@ -328,6 +328,16 @@ _DESIGN_WEB_ONLY_DESCRIPTION = (
 )
 # The API's default images.count, documented at https://docs.octen.ai/api-reference/design-search.md
 _DESIGN_DEFAULT_IMAGE_COUNT = 5
+
+def _materialized(value: Any, limit: Optional[int] = None) -> Any:
+    """A list from a one-shot iterator (e.g. a generator); other values unchanged.
+
+    With limit, at most that many items are read, so an endless iterator ends.
+    """
+    if isinstance(value, Iterator):
+        return list(itertools.islice(value, limit))
+    return value
+
 
 def _blank(value: Optional[str]) -> bool:
     return value is None or not value.strip()
@@ -1522,14 +1532,16 @@ class OctenToolSpec(BaseToolSpec):
             for errors handed to the model. Exactly one of query and image_url.
         """
         try:
-            _ImageSearchArgs(
+            args = _ImageSearchArgs(
                 query=query,
                 image_url=image_url,
-                include_domains=include_domains,
-                exclude_domains=exclude_domains,
+                include_domains=_materialized(include_domains, limit=11),
+                exclude_domains=_materialized(exclude_domains, limit=11),
             )
         except ValidationError as exc:
             return {"error": f"Invalid arguments: {_describe(exc)}"}
+        # Forward the validated lists: a one-shot iterable is used up by validation.
+        include_domains, exclude_domains = args.include_domains, args.exclude_domains
         has_query, has_url = not _blank(query), not _blank(image_url)
         if has_query and has_url:
             return {
@@ -1630,7 +1642,8 @@ class OctenToolSpec(BaseToolSpec):
         self, endpoint: str, request_model: Any, **model_args: Any
     ) -> Dict[str, Any]:
         """Call one of the newer endpoints and shape the result for the model."""
-        model_args = {k: v for k, v in model_args.items() if v is not None}
+        # A one-shot iterable would be used up by validation and forwarded empty.
+        model_args = {k: _materialized(v) for k, v in model_args.items() if v is not None}
         problem = _invalid_model_args(request_model, model_args)
         if problem is not None:
             return {"error": problem}
