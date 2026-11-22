@@ -525,6 +525,9 @@ def test_image_limits_accepted(octen_cls: MagicMock) -> None:
         ({"query": "x" * 501}, "query"),
         ({"group_id": 7}, "group_id"),
         ({"query": ["a"]}, "query"),
+        # The API rejects a group_id of 128 or more characters (code points).
+        ({"group_id": "g" * 128}, "group_id"),
+        ({"group_id": "\U0001F600" * 128}, "group_id"),
     ],
 )
 def test_design_bad_model_args_return_error_without_request(
@@ -1075,7 +1078,7 @@ def test_design_both_switches_off_rejected(options: Dict[str, Any]) -> None:
 def test_image_url_accepts_authority_forms(octen_cls: MagicMock) -> None:
     for url in ("https://user:pw@example.com:8443/a.png", "HTTPS://example.com/a.png",
                 "https://1.2.3.example/a.png", "https://example.com:/a.png",
-                "https://us%40er@example.com/a.png", "https://ex%41mple.com/a.png",
+                "https://us%40er@example.com/a.png", "https://ex%C3%A4mple.com/a.png",
                 "https://xn--bcher-kva.example/a.png", "https://b\u00fccher.example/a.png",
                 "https://example.com/a%20b.png?x=1#f"):
         assert "error" not in _spec().image_search(image_url=url), url
@@ -1191,6 +1194,64 @@ def test_billing_warning_never_comes_with_a_retry_hint(
         assert "try again" not in error.lower() and "try another" not in error.lower(), error
 
 
+def test_design_group_id_limit_counts_code_points(octen_cls: MagicMock) -> None:
+    # 127 four-byte characters (254 UTF-16 units) are still 127 code points.
+    for group_id in ("g" * 127, "\U0001F600" * 127):
+        assert "error" not in _spec().design_search(group_id=group_id)
+    props = _tools()["design_search"].metadata.fn_schema.model_json_schema()["properties"]
+    assert props["group_id"]["anyOf"][0]["maxLength"] == 127
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://%65xample.com/photo.jpg", "https://example%2ecom/photo.png",
+     "https://ex%2Dample.com/a.png", "https://u@ex%41mple.com:443/a.png"],
+)
+def test_ascii_escape_in_host_rejected(octen_cls: MagicMock, url: str) -> None:
+    # Go's net/url, as the API uses it, takes only %25 or a non-ASCII byte in a host.
+    assert "https URL with a domain name" in _spec().image_search(image_url=url)["error"]
+    octen_cls.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://caf%C3%A9.com/a.png", "https://ex%25ample.com/a.png",
+     "https://us%41er@example.com/a%41.png", "https://example.com/a.png?h=%41"],
+)
+def test_allowed_escapes_sent_unchanged(octen_cls: MagicMock, url: str) -> None:
+    _spec().image_search(image_url=url)
+    _sdk(octen_cls, "image_search").assert_called_once_with(image_url=url)
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        OctenConnectionError(request_sent=False),
+        OctenTimeoutError(timeout=30, request_sent=False),
+        OctenAPIError("x", status_code=503),
+        OctenAPIError("x", status_code=500),
+        OctenAPIError("x", status_code=408),
+        OctenRateLimitError(),
+        OctenTimeoutError(timeout=30, request_sent=True),
+        OctenAPIError("x", status_code=502),
+        OctenAPIError("x", status_code=504),
+    ],
+)
+def test_transient_image_url_errors_do_not_blame_the_image(
+    octen_cls: MagicMock, exc: Exception
+) -> None:
+    _sdk(octen_cls, "image_search").side_effect = exc
+    error = _spec().image_search(image_url=IMAGE_URL)["error"]
+    assert "another image" not in error.lower(), error
+
+
+@pytest.mark.parametrize("status", [400, 422])
+def test_input_rejection_suggests_another_image(octen_cls: MagicMock, status: int) -> None:
+    _sdk(octen_cls, "image_search").side_effect = OctenAPIError("x", status_code=status)
+    error = _spec().image_search(image_url=IMAGE_URL)["error"]
+    assert "another image" in error.lower() and "temporarily" not in error
+
+
 def test_image_url_errors_keep_billing_warning_and_status(octen_cls: MagicMock) -> None:
     _sdk(octen_cls, "image_search").side_effect = OctenTimeoutError(timeout=30, request_sent=True)
     assert "may already have reached the server and been billed" in _spec().image_search(
@@ -1200,7 +1261,7 @@ def test_image_url_errors_keep_billing_warning_and_status(octen_cls: MagicMock) 
     error = _spec().image_search(image_url=IMAGE_URL)["error"]
     assert "HTTP 503" in error and "rid-503" in error
     assert "may already have" not in error
-    assert "Try again later" in error
+    assert "temporarily unavailable" in error and "Try again later" in error
 
 
 def test_text_query_errors_keep_upstream_text(octen_cls: MagicMock) -> None:

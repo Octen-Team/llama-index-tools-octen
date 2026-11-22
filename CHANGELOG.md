@@ -47,7 +47,8 @@ has both new endpoints. One thing changes:
 - `design_search`: Design Search, finds design references: screenshots of web
   pages, page sections, app screens and slides with their design values, plus
   web results on the same query.
-  - The model sets `query` (max 500 characters) and `group_id`, taken from an
+  - The model sets `query` (max 500 characters) and `group_id` (max 127
+    characters, as the API requires), taken from an
     earlier result's `group`, to get that web page's or deck's images in group
     order, up to `images.count` (the API default is 5); the tool description
     states that limit. `query` is required unless `group_id` is set; a call with

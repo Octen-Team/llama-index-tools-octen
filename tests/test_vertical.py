@@ -223,6 +223,18 @@ def test_list_filter_generators_reach_the_sdk_as_lists(
     )
 
 
+@pytest.mark.parametrize("function", NEW_FUNCTIONS)
+def test_non_string_query_iterator_rejected_without_being_consumed(
+    octen_cls: MagicMock, function: str
+) -> None:
+    # Only the list filters are turned into lists; a query iterator is a model mistake.
+    query = iter(["a", "b"])
+    result = getattr(_spec(), function)(query)
+    assert set(result) == {"error"} and "query" in result["error"]
+    assert list(query) == ["a", "b"]
+    octen_cls.assert_not_called()
+
+
 def test_premier_domain_generators_reach_the_sdk_as_lists(octen_cls: MagicMock) -> None:
     _spec().search_premier(
         "q", include_domains=(d for d in ["a.com"]), exclude_domains=iter(["b.com"])

@@ -274,8 +274,10 @@ class _DesignSearchArgs(BaseModel):
         description='What to find design references for, e.g. "pricing section for a '
         'SaaS landing page". Max 500 chars. Required unless group_id is set.',
     )
+    # The API rejects a group_id of 128 or more characters.
     group_id: Optional[str] = Field(
         default=None,
+        max_length=127,
         description="The group.group_id of an image result from an earlier design_search "
         "call, to get that web page's or deck's images in group order instead of "
         "searching by query.",
@@ -329,6 +331,9 @@ _DESIGN_WEB_ONLY_DESCRIPTION = (
 # The API's default images.count, documented at https://docs.octen.ai/api-reference/design-search.md
 _DESIGN_DEFAULT_IMAGE_COUNT = 5
 
+_LIST_FILTERS = frozenset({"include_domains", "exclude_domains", "language"})
+
+
 def _materialized(value: Any, limit: Optional[int] = None) -> Any:
     """A list from a one-shot iterator (e.g. a generator); other values unchanged.
 
@@ -355,7 +360,14 @@ _BAD_PERCENT = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
 
 def _valid_authority(netloc: str) -> bool:
-    return _AUTHORITY.fullmatch(netloc) is not None
+    if _AUTHORITY.fullmatch(netloc) is None:
+        return False
+    # As in Go's net/url, a host escape must be %25 or encode a non-ASCII byte.
+    host = netloc.rpartition("@")[2].partition(":")[0]
+    return all(
+        escape.lower() == "25" or int(escape, 16) >= 0x80
+        for escape in re.findall(r"%([0-9A-Fa-f]{2})", host)
+    )
 
 
 def _is_ip_address(host: str) -> bool:
@@ -416,7 +428,9 @@ def _image_url_error(exc: Exception, rejected: bool, message: Optional[str]) -> 
     if message is not None and message.endswith(_MAY_HAVE_BEEN_SENT):
         # No retry hint next to a do-not-retry warning.
         return f"{text} {_MAY_HAVE_BEEN_SENT}"
-    return f"{text} Try again later, try another image URL, or search by text."
+    if status in (400, 422):  # the API could not use this image
+        return f"{text} Try another image URL, or search by text."
+    return f"{text} The service is temporarily unavailable. Try again later."
 
 
 def _image_url_failure(what: str) -> str:
@@ -1654,8 +1668,12 @@ class OctenToolSpec(BaseToolSpec):
         self, endpoint: str, request_model: Any, **model_args: Any
     ) -> Dict[str, Any]:
         """Call one of the newer endpoints and shape the result for the model."""
-        # A one-shot iterable would be used up by validation and forwarded empty.
-        model_args = {k: _materialized(v) for k, v in model_args.items() if v is not None}
+        # A one-shot iterable filter would be used up by validation and forwarded empty.
+        model_args = {
+            k: _materialized(v) if k in _LIST_FILTERS else v
+            for k, v in model_args.items()
+            if v is not None
+        }
         problem = _invalid_model_args(request_model, model_args)
         if problem is not None:
             return {"error": problem}
