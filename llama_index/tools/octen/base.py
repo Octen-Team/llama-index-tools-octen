@@ -311,6 +311,28 @@ def _blank(value: Optional[str]) -> bool:
     return value is None or not value.strip()
 
 
+def _is_http_url(value: str) -> bool:
+    try:
+        parsed = urlparse(value)
+        return parsed.scheme.lower() in ("http", "https") and bool(parsed.hostname)
+    except ValueError:  # e.g. "Invalid IPv6 URL" for an unclosed bracket
+        return False
+
+
+def _image_rejected(exc: Exception) -> bool:
+    from octen import OctenAPIError
+
+    return isinstance(exc, OctenAPIError) and exc.status_code in (413, 415)
+
+
+# Image Search's 413 / 415 come from the image the model chose, so the model can retry.
+_IMAGE_REJECTED = (
+    "The image could not be used. Try another image: a smaller image (at most 5MB) "
+    "in a supported format (JPEG, PNG, WEBP, BMP, TIFF, ICO, DIB, ICNS or SGI), "
+    "or search by text instead."
+)
+
+
 # Documented at https://docs.octen.ai/api-reference/extract.md
 _EXTRACT_DEFAULT_MAX_URLS = 5
 _EXTRACT_DEFAULT_URL_TIMEOUT = 30
@@ -1359,13 +1381,11 @@ class OctenToolSpec(BaseToolSpec):
                 "error": "Got neither query nor image_url. Nothing was searched. Pass query "
                 "(text describing the images) or image_url (a public image URL), exactly one."
             }
-        if has_url:
-            parsed = urlparse(str(image_url).strip())
-            if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
-                return {
-                    "error": "image_url must be a public http(s) URL of an image. "
-                    "Nothing was searched."
-                }
+        if has_url and not _is_http_url(str(image_url).strip()):
+            return {
+                "error": "image_url must be a public http(s) URL of an image. "
+                "Nothing was searched."
+            }
         model_args = {
             k: v
             for k, v in (
@@ -1459,6 +1479,8 @@ class OctenToolSpec(BaseToolSpec):
                 response = getattr(client.search, endpoint)(**kwargs)
         except Exception as exc:
             message = _classify(exc)
+            if endpoint == "image_search" and _image_rejected(exc):
+                message = f"{exc}. {_IMAGE_REJECTED}"
             if message is None:
                 # Agent workflows turn any tool exception into text for the
                 # model, so log it where the developer will see it.

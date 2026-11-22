@@ -36,6 +36,9 @@ has both new endpoints. One thing changes:
   - `count` (1-10), `safesearch` (`"off"` or `"strict"`) and `timeout` come from
     the new keyword-only constructor argument `image_search_options`, checked
     when the spec is built.
+  - An HTTP 413 (image too large) or 415 (unsupported image format) is returned
+    to the model with a suggestion to try a smaller image in a supported format
+    or a text query, instead of being raised.
 - `design_search`: Design Search, finds design references: screenshots of web
   pages, page sections, app screens and slides with their design values, plus
   web results on the same query.

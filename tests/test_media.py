@@ -23,6 +23,7 @@ from octen import (
 )
 
 from llama_index.tools.octen import OctenToolSpec
+from tests.test_vertical import RFC3339_INVALID, RFC3339_VALID
 
 FUNCTIONS = ["image_search", "design_search"]
 # A minimal valid model call for each function.
@@ -281,6 +282,10 @@ def test_design_wire_body() -> None:
         ({"image_url": "ftp://example.com/a.jpg"}, "http(s)"),
         ({"image_url": "data:image/png;base64,AAAA"}, "http(s)"),
         ({"image_url": "example.com/a.jpg"}, "http(s)"),
+        ({"image_url": "https://"}, "http(s)"),
+        ({"image_url": "https://:443/x.png"}, "http(s)"),
+        ({"image_url": "https://[example.com/x.jpg"}, "http(s)"),
+        ({"image_url": "http://user@/x.png"}, "http(s)"),
         ({"query": "x" * 501}, "query"),
         ({"query": "q", "include_domains": ["a.com"] * 11}, "include_domains"),
         ({"query": "q", "exclude_domains": ["a.com"] * 11}, "exclude_domains"),
@@ -686,6 +691,62 @@ def test_config_errors_raise_and_log(
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert len(errors) == 1 and errors[0].getMessage().startswith(f"{function} raised")
     octen_cls.return_value.close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("status", "mentions"),
+    [(413, "smaller image"), (415, "supported format")],
+)
+def test_image_413_415_returned_to_model_with_guidance(
+    octen_cls: MagicMock, caplog: Any, status: int, mentions: str
+) -> None:
+    exc = OctenAPIError("rejected", status_code=status)
+    _sdk(octen_cls, "image_search").side_effect = exc
+    with caplog.at_level(logging.ERROR, logger="llama_index.tools.octen"):
+        result = _spec().image_search(image_url=IMAGE_URL)
+    assert set(result) == {"error"}
+    assert result["error"].startswith(str(exc))
+    assert mentions in result["error"]
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        OctenAuthenticationError(),
+        OctenAPIError("forbidden", status_code=403),
+        OctenAPIError("payload too large", status_code=413),
+        OctenAPIError("unsupported media type", status_code=415),
+    ],
+)
+def test_design_413_415_and_auth_still_raise(octen_cls: MagicMock, exc: Exception) -> None:
+    # Only Image Search takes an image from the model, so only it hands these back.
+    _sdk(octen_cls, "design_search").side_effect = exc
+    with pytest.raises(type(exc)):
+        _spec().design_search("q")
+
+
+@pytest.mark.parametrize(
+    "exc", [OctenAuthenticationError(), OctenAPIError("forbidden", status_code=403)]
+)
+def test_image_auth_errors_still_raise(octen_cls: MagicMock, exc: Exception) -> None:
+    _sdk(octen_cls, "image_search").side_effect = exc
+    with pytest.raises(type(exc)):
+        _spec().image_search(image_url=IMAGE_URL)
+
+
+@pytest.mark.parametrize("field", ["start_time", "end_time"])
+@pytest.mark.parametrize("value", RFC3339_INVALID)
+def test_design_web_search_non_rfc3339_time_rejected(value: str, field: str) -> None:
+    with pytest.raises(ValueError, match=f"design_search_options.*web_search.{field}"):
+        _spec(design_search_options={"web_search": {field: value}})
+
+
+@pytest.mark.parametrize("value", RFC3339_VALID)
+def test_design_web_search_rfc3339_time_accepted(octen_cls: MagicMock, value: str) -> None:
+    web_search = {"start_time": value, "end_time": value}
+    _spec(design_search_options={"web_search": web_search}).design_search("q")
+    assert _sdk(octen_cls, "design_search").call_args.kwargs["web_search"] == web_search
 
 
 def test_names_match_real_sdk_signatures() -> None:

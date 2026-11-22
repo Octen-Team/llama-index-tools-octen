@@ -196,6 +196,7 @@ if grouped:
 | `timeout` (both) | HTTP request timeout passed to the SDK, in seconds | spec-level `timeout` |
 
 - Both inputs to `image_search`, neither, an `image_url` that is not http(s), a `design_search` call with neither `query` nor `group_id`, a query over 500 characters, or more than 10 domains is returned to the model as `{"error": ...}` before any request is sent.
+- An HTTP 413 (image too large) or 415 (unsupported image format) from Image Search is returned to the model with a suggestion to try a smaller image in a supported format, or a text query; it is not raised. Other errors are split as for the vertical functions below.
 - Options are checked when the spec is built, with strict types: `True` or `5.0` is not accepted as a count.
 - **Design Search output is large by default.** Left to the API defaults, each image result carries its `design_facts` and, when it has reusable code, a `snippet` of up to 5000 tokens, and all of it reaches the model. Turn them off with `design_search_options={"images": {"design_facts": False, "snippet": {"enable": False}}}`, or shorten snippets with `"snippet": {"max_tokens": 500}`.
 - Return value and errors are as described for the vertical functions below: `data` is the API response data as returned, including thumbnails, each design image's `group` (with the `group_id` the model passes back) and the web results' extra fields.
