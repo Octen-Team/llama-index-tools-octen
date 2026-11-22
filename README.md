@@ -135,7 +135,7 @@ for r in result["data"]["results"]:
 
 ```python
 tool = OctenToolSpec(
-    extract_options={"max_urls": 10, "mode": "auto", "timeout": 60, "request_timeout": 90},
+    extract_options={"max_urls": 10, "mode": "auto", "url_timeout": 60},
 )
 
 result = tool.extract(["https://example.com", "https://docs.octen.ai/overview/welcome"])
@@ -152,12 +152,12 @@ for item in result["data"]["results"]:
 | `mode` | `"standard"`, `"advanced"` or `"auto"` | not sent; the API uses `standard` |
 | `format` | `"markdown"` or `"text"` | not sent; the API uses `markdown` |
 | `max_age_seconds` | cache age before a page is fetched again, 300-31536000 | not sent; the API uses 86400 |
-| `timeout` | the API's per-URL fetch timeout in seconds, 1-60 | not sent; the API uses 30 |
+| `url_timeout` | the API's per-URL fetch timeout in seconds, 1-60; sent as `timeout` | not sent; the API uses 30 |
 | `include_images`, `include_videos`, `include_audio` | `True` to return media URLs found on each page | not sent |
 | `include_links` | `{"scope": "prefer_internal" \| "prefer_external", "max_links": 1-1000}`; `{}` uses the API defaults | not sent |
-| `request_timeout` | socket timeout for the call, in seconds | spec-level `timeout`, else the SDK default (30 s) |
+| `timeout` | client timeout for the whole call, in seconds | spec-level `timeout`, else `url_timeout` (or 30) + 90 |
 
-- Unlike the other options dicts, `timeout` here is the API's per-URL budget, sent in the request; `request_timeout` is the socket timeout and overrides the spec-level `timeout`. With `mode="advanced"` or `"auto"`, or a higher `timeout`, set `request_timeout` above it (for example `timeout=60, request_timeout=90`), or the call can time out on your side while the server is still working.
+- As in the other options dicts, `timeout` is the client timeout and overrides the spec-level `timeout`. The API's per-URL budget is `url_timeout`. When neither `timeout` is set, the client waits `url_timeout` (or the API default of 30) plus 90 seconds, since a batch, and `mode="advanced"` or `"auto"`, can take longer than one URL's budget.
 - A call with more URLs than `max_urls`, or with none, sends no request: the model gets `{"error": ...}` with the limit and is told to split the URLs into several calls. URLs longer than 2048 characters, empty URLs and a `query` over 500 characters are also returned to the model before any request.
 - `data` keeps every URL in input order. A URL that could not be read has `status: "failed"` and an `error_message`, and is not billed; the others still return content. Content is not truncated. Each successful item has `resolved_mode`, the mode it was billed at; with `verbose=True` the request's usage counts (`successful_by_mode`) are printed.
 - Errors are split as described for the vertical functions below.
@@ -185,7 +185,7 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 | `pulse_search` | `query` | `count`, `highlight`, `full_content`, `mode`, `timeout` |
 | `place_search` | `query`, `latitude`, `longitude`, `radius`, `city`, `region`, `country`, `timezone` | `places`, `web_search`, `timeout` |
 | `search_premier` | `query`, `include_domains`, `exclude_domains` | `count`, `result_type`, `highlight`, `full_content`, `include_text`, `exclude_text`, `language`, `time_basis`, `time_range`, `start_time`, `end_time`, `format`, `safesearch`, `include_images`, `timeout` |
-| `extract` | `urls`, `query` | `max_urls`, `mode`, `format`, `max_age_seconds`, `timeout` (per URL), `include_images`, `include_videos`, `include_audio`, `include_links`, `request_timeout` (see [Extract](#extract)) |
+| `extract` | `urls`, `query` | `max_urls`, `mode`, `format`, `max_age_seconds`, `url_timeout`, `include_images`, `include_videos`, `include_audio`, `include_links`, `timeout` (see [Extract](#extract)) |
 
 - Options you leave out are not sent, so the API defaults apply. Values are passed to the [`octen`](https://pypi.org/project/octen/) SDK as-is (`dict`s or the SDK's option models). They are checked when the spec is built: a key that is not listed for a function, or a value the SDK would reject (for example `count=1000`), raises `ValueError`. `timeout` in an options dict overrides the spec-level `timeout` for that function.
 - `time_range` is one of `day`, `week`, `month`, `year` (or `d`, `w`, `m`, `y`). `language` is a list of ISO 639-1 codes.

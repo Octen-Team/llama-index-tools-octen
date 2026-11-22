@@ -238,9 +238,12 @@ _EXTRACT_DESCRIPTION = (
 
 # Documented at https://docs.octen.ai/api-reference/extract.md
 _EXTRACT_DEFAULT_MAX_URLS = 5
+_EXTRACT_DEFAULT_URL_TIMEOUT = 30
+# Client headroom over the per-URL budget, as in the hosted MCP server.
+_EXTRACT_CLIENT_HEADROOM = 90
 _EXTRACT_INT_BOUNDS = (
     ("max_urls", 1, 20),
-    ("timeout", 1, 60),
+    ("url_timeout", 1, 60),
     ("max_age_seconds", 300, 31_536_000),
 )
 
@@ -274,19 +277,19 @@ _ALLOWED_OPTIONS: Dict[str, FrozenSet[str]] = {
         "safesearch",
         "include_images",
     },
-    # timeout is the API's per-URL budget; request_timeout is the socket timeout.
+    # url_timeout is the API's per-URL budget, sent as "timeout" in the request.
     "extract_options": frozenset(
         {
             "mode",
             "format",
             "max_age_seconds",
-            "timeout",
+            "url_timeout",
             "include_images",
             "include_videos",
             "include_audio",
             "include_links",
             "max_urls",
-            "request_timeout",
+            "timeout",
         }
     ),
 }
@@ -373,7 +376,7 @@ def _describe(exc: ValidationError) -> str:
     )
 
 
-def _check_timeout(label: str, timeout: Any, key: str = "timeout") -> None:
+def _check_timeout(label: str, timeout: Any) -> None:
     """Reject a timeout that is not a finite, positive number of seconds."""
     if timeout is None:
         return
@@ -387,7 +390,7 @@ def _check_timeout(label: str, timeout: Any, key: str = "timeout") -> None:
     except OverflowError:  # an int too large for a float
         valid = False
     if not valid:
-        raise ValueError(f"{label}: {key} must be a positive number of seconds, got {timeout!r}")
+        raise ValueError(f"{label}: timeout must be a positive number of seconds, got {timeout!r}")
 
 
 def _validate_option_values(name: str, options: Dict[str, Any]) -> None:
@@ -460,7 +463,7 @@ def _check_extract_options(options: Dict[str, Any]) -> None:
     import octen
 
     name = "extract_options"
-    _check_timeout(name, options.get("request_timeout"), key="request_timeout")
+    _check_timeout(name, options.get("timeout"))
     for key, low, high in _EXTRACT_INT_BOUNDS:
         value = options.get(key)
         if value is None:
@@ -470,11 +473,18 @@ def _check_extract_options(options: Dict[str, Any]) -> None:
                 f"{name} has an invalid value: {key} must be an integer from "
                 f"{low} to {high}, got {value!r}"
             )
-    fields = {k: v for k, v in options.items() if k not in ("max_urls", "request_timeout")}
+    fields = _extract_sdk_options(options)
+    fields.pop("request_timeout", None)
     try:
         octen.ExtractRequest(urls=["https://example.com"], **fields)
     except ValidationError as exc:
         raise ValueError(f"{name} has an invalid value: {_describe(exc)}") from exc
+
+
+def _extract_sdk_options(options: Dict[str, Any]) -> Dict[str, Any]:
+    """Map extract_options to the SDK's names: url_timeout -> timeout, timeout -> request_timeout."""
+    renamed = {"url_timeout": "timeout", "timeout": "request_timeout"}
+    return {renamed.get(k, k): v for k, v in options.items() if k != "max_urls"}
 
 
 def _invalid_model_args(request_model: Any, model_args: Dict[str, Any]) -> Optional[str]:
@@ -550,10 +560,11 @@ class OctenToolSpec(BaseToolSpec):
                 exclude_text, language, time_basis, time_range, start_time,
                 end_time, format, safesearch, include_images, timeout.
             extract_options: Options for every extract call: mode, format,
-                max_age_seconds, timeout (the API's per-URL budget, 1-60),
+                max_age_seconds, url_timeout (the API's per-URL budget, 1-60),
                 include_images, include_videos, include_audio, include_links,
                 max_urls (URLs the model may send per call, 1-20, default 5)
-                and request_timeout (the socket timeout).
+                and timeout (the client timeout; defaults to the spec-level
+                timeout, else (url_timeout or 30) + 90 seconds).
 
         Raises:
             ValueError: if no API key is available, or an options dict holds
@@ -1128,13 +1139,14 @@ class OctenToolSpec(BaseToolSpec):
         if problem is not None:
             return {"error": problem}
 
-        kwargs = dict(self._options["extract_options"])
-        kwargs.pop("max_urls", None)
-        request_timeout = kwargs.pop("request_timeout", None)
-        if request_timeout is None:
-            request_timeout = self._timeout
-        if request_timeout is not None:
-            kwargs["request_timeout"] = request_timeout
+        kwargs = _extract_sdk_options(self._options["extract_options"])
+        if kwargs.get("request_timeout") is None:
+            # A batch can outlast the per-URL budget, so the client waits longer.
+            url_timeout = kwargs.get("timeout") or _EXTRACT_DEFAULT_URL_TIMEOUT
+            kwargs["request_timeout"] = (
+                self._timeout if self._timeout is not None
+                else url_timeout + _EXTRACT_CLIENT_HEADROOM
+            )
         kwargs.update(model_args)
         return self._call("extract", kwargs, f"{len(urls)} URLs")
 

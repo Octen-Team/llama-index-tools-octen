@@ -317,7 +317,8 @@ def test_live_extract_mode_advanced_with_control(monkeypatch: Any) -> None:
     monkeypatch.setattr(ExtractResource, "extract", record)
     url = ["https://example.com"]
     control = _items("extract standard", _spec().extract(url))[0]
-    options = {"mode": "advanced", "timeout": 60, "request_timeout": 120}
+    # No client timeout set: it is derived as url_timeout + 90 seconds.
+    options = {"mode": "advanced", "url_timeout": 60}
     advanced = _items("extract advanced", _spec(extract_options=options).extract(url))[0]
     by_mode = [r.successful_by_mode for r in responses]
     print(f"resolved_mode={control.get('resolved_mode')},{advanced.get('resolved_mode')} "

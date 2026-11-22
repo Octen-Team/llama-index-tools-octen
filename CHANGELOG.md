@@ -30,11 +30,14 @@ shapes and errors. Things that do change:
   - Return shape and error handling are the same as the vertical functions.
 - `extract`: Extract, reads web pages by URL and returns their clean content.
   - The model sets only `urls` and an optional `query` (highlights instead of
-    full content). `mode`, `format`, `max_age_seconds`, the per-URL `timeout`
-    (1-60), `include_images` / `include_videos` / `include_audio`,
-    `include_links`, `request_timeout` (socket) and `max_urls` come from the
+    full content). `mode`, `format`, `max_age_seconds`, `url_timeout` (the
+    API's per-URL budget, 1-60), `include_images` / `include_videos` /
+    `include_audio`, `include_links`, `timeout` and `max_urls` come from the
     new keyword-only constructor argument `extract_options`, checked when the
     spec is built.
+  - `timeout` is the client timeout, as in the other options dicts. Left
+    unset, it is the spec-level `timeout`, else `url_timeout` (or 30) plus 90
+    seconds.
   - `max_urls` (1-20, default 5) caps the URLs per call. A call with more, or
     with none, sends no request and tells the model the limit.
   - Every URL comes back in `data`, including failed ones with their

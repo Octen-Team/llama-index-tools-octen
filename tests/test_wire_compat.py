@@ -262,13 +262,13 @@ EXTRACT_OPTIONS = {
     "mode": "advanced",
     "format": "text",
     "max_age_seconds": 600,
-    "timeout": 60,
+    "url_timeout": 60,
     "include_images": True,
     "include_videos": True,
     "include_audio": True,
     "include_links": {"max_links": 10},
     "max_urls": 20,
-    "request_timeout": 120,
+    "timeout": 120,
 }
 
 

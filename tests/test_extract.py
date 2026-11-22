@@ -27,15 +27,17 @@ ALL_OPTIONS: Dict[str, Any] = {
     "mode": "auto",
     "format": "text",
     "max_age_seconds": 3600,
-    "timeout": 45,
+    "url_timeout": 45,
     "include_images": True,
     "include_videos": True,
     "include_audio": True,
     "include_links": {"scope": "prefer_external", "max_links": 50},
     "max_urls": 10,
-    "request_timeout": 120.0,
+    "timeout": 120.0,
 }
 DEVELOPER_ONLY = [k for k in ALL_OPTIONS]
+# (url_timeout or the API default of 30) + 90, when no client timeout is set.
+DERIVED = 120
 
 
 def _response(
@@ -123,18 +125,21 @@ def test_description_passes_openai_length_check(cap: int) -> None:
 
 def test_model_inputs_reach_sdk(octen_cls: MagicMock) -> None:
     _spec().extract(URLS, query="pricing")
-    _sdk(octen_cls).assert_called_once_with(urls=URLS, query="pricing")
+    _sdk(octen_cls).assert_called_once_with(
+        urls=URLS, query="pricing", request_timeout=DERIVED
+    )
     octen_cls.assert_called_once_with(api_key="k", retry_after_send=False)
 
 
 def test_unset_options_not_sent(octen_cls: MagicMock) -> None:
     _spec().extract(URLS)
-    _sdk(octen_cls).assert_called_once_with(urls=URLS)
+    _sdk(octen_cls).assert_called_once_with(urls=URLS, request_timeout=DERIVED)
 
 
 def test_developer_options_forwarded(octen_cls: MagicMock) -> None:
     _spec(extract_options=ALL_OPTIONS).extract(URLS, query="q")
-    expected = {k: v for k, v in ALL_OPTIONS.items() if k != "max_urls"}
+    renamed = {"url_timeout": "timeout", "timeout": "request_timeout"}
+    expected = {renamed.get(k, k): v for k, v in ALL_OPTIONS.items() if k != "max_urls"}
     _sdk(octen_cls).assert_called_once_with(urls=URLS, query="q", **expected)
 
 
@@ -154,7 +159,7 @@ def _wire(spec: OctenToolSpec, *args: Any, **kwargs: Any) -> List[Any]:
 
 
 def test_wire_body_with_defaults() -> None:
-    assert _wire(_spec(), URLS) == [("POST", "/extract", {"urls": URLS}, None)]
+    assert _wire(_spec(), URLS) == [("POST", "/extract", {"urls": URLS}, DERIVED)]
 
 
 def test_wire_body_with_every_option() -> None:
@@ -180,17 +185,42 @@ def test_wire_body_with_every_option() -> None:
     ]
 
 
-def test_socket_timeout_falls_back_to_spec_timeout(octen_cls: MagicMock) -> None:
-    _spec(timeout=10).extract(URLS)
-    _spec(timeout=10, extract_options={"request_timeout": 90}).extract(URLS)
-    _spec(timeout=10, extract_options={"timeout": 60}).extract(URLS)
-    calls = [c.kwargs for c in _sdk(octen_cls).call_args_list]
-    assert calls == [
-        {"urls": URLS, "request_timeout": 10},
-        {"urls": URLS, "request_timeout": 90},
-        # The upstream per-URL timeout never stands in for the socket one, or back.
-        {"urls": URLS, "timeout": 60, "request_timeout": 10},
-    ]
+@pytest.mark.parametrize(
+    ("spec_kwargs", "options", "expected"),
+    [
+        ({"timeout": 10}, {"timeout": 90}, {"request_timeout": 90}),
+        ({"timeout": 10}, {"timeout": 90, "url_timeout": 60}, {"request_timeout": 90, "timeout": 60}),
+        ({"timeout": 10}, {}, {"request_timeout": 10}),
+        ({"timeout": 10}, {"url_timeout": 60}, {"request_timeout": 10, "timeout": 60}),
+        ({}, {}, {"request_timeout": 120}),
+        ({}, {"url_timeout": 60}, {"request_timeout": 150, "timeout": 60}),
+        ({}, {"url_timeout": 1}, {"request_timeout": 91, "timeout": 1}),
+    ],
+    ids=["option-wins", "option-wins-url", "spec", "spec-url", "derived",
+         "derived-60", "derived-1"],
+)
+def test_client_timeout_precedence(
+    octen_cls: MagicMock,
+    spec_kwargs: Dict[str, Any],
+    options: Dict[str, Any],
+    expected: Dict[str, Any],
+) -> None:
+    # extract_options timeout > spec-level timeout > (url_timeout or 30) + 90.
+    _spec(extract_options=options, **spec_kwargs).extract(URLS)
+    _sdk(octen_cls).assert_called_once_with(urls=URLS, **expected)
+
+
+@pytest.mark.parametrize(
+    ("options", "body_timeout", "socket"),
+    [({"url_timeout": 60}, 60, 150), ({"timeout": 5}, None, 5), ({}, None, 120)],
+)
+def test_url_timeout_on_wire_and_timeout_never_in_body(
+    options: Dict[str, Any], body_timeout: Any, socket: Any
+) -> None:
+    [(_, _, body, sent_socket)] = _wire(_spec(extract_options=options), URLS)
+    assert body.get("timeout") == body_timeout
+    assert "url_timeout" not in body and "request_timeout" not in body
+    assert sent_socket == socket
 
 
 def test_model_cannot_pass_developer_options(octen_cls: MagicMock) -> None:
@@ -204,7 +234,7 @@ def test_model_cannot_pass_developer_options(octen_cls: MagicMock) -> None:
 def test_tool_call_through_llamaindex(octen_cls: MagicMock) -> None:
     tool = _tools()["extract"]
     assert tool.call(urls=URLS).raw_output == {"data": {"results": []}, "request_id": "rid-x"}
-    _sdk(octen_cls).assert_called_once_with(urls=URLS)
+    _sdk(octen_cls).assert_called_once_with(urls=URLS, request_timeout=DERIVED)
 
 
 def test_options_deep_copied(octen_cls: MagicMock) -> None:
@@ -231,7 +261,8 @@ def test_names_match_real_sdk_signature() -> None:
     from llama_index.tools.octen.base import _ALLOWED_OPTIONS
 
     accepted = set(inspect.signature(ExtractResource.extract).parameters) - {"self"}
-    options = _ALLOWED_OPTIONS["extract_options"] - {"max_urls"}
+    renamed = {"url_timeout": "timeout", "timeout": "request_timeout"}
+    options = {renamed.get(k, k) for k in _ALLOWED_OPTIONS["extract_options"] - {"max_urls"}}
     model_args = set(inspect.signature(OctenToolSpec.extract).parameters) - {"self"}
     assert options <= accepted, options - accepted
     assert model_args <= accepted, model_args - accepted
@@ -254,7 +285,7 @@ def test_more_urls_than_default_cap_rejected_without_call(octen_cls: MagicMock) 
 def test_default_cap_accepts_five(octen_cls: MagicMock) -> None:
     urls = [f"https://example.com/{i}" for i in range(5)]
     assert "error" not in _spec().extract(urls)
-    _sdk(octen_cls).assert_called_once_with(urls=urls)
+    _sdk(octen_cls).assert_called_once_with(urls=urls, request_timeout=DERIVED)
 
 
 @pytest.mark.parametrize("cap", [1, 2, 20])
@@ -266,7 +297,7 @@ def test_custom_cap(octen_cls: MagicMock, cap: int) -> None:
     assert f"at most {cap}" in result["error"]
     octen_cls.assert_not_called()
     assert "error" not in spec.extract(urls[:cap])
-    _sdk(octen_cls).assert_called_once_with(urls=urls[:cap])
+    _sdk(octen_cls).assert_called_once_with(urls=urls[:cap], request_timeout=DERIVED)
 
 
 def test_empty_url_list_rejected_without_call(octen_cls: MagicMock) -> None:
@@ -313,11 +344,11 @@ def test_longest_allowed_url_and_query_sent(octen_cls: MagicMock) -> None:
         ({"max_urls": True}, "max_urls"),
         ({"max_urls": "5"}, "max_urls"),
         ({"max_urls": 5.0}, "max_urls"),
-        ({"timeout": 0}, "timeout"),
-        ({"timeout": 61}, "timeout"),
-        ({"timeout": True}, "timeout"),
-        ({"timeout": 5.5}, "timeout"),
-        ({"timeout": "30"}, "timeout"),
+        ({"url_timeout": 0}, "url_timeout"),
+        ({"url_timeout": 61}, "url_timeout"),
+        ({"url_timeout": True}, "url_timeout"),
+        ({"url_timeout": 5.5}, "url_timeout"),
+        ({"url_timeout": "30"}, "url_timeout"),
         ({"max_age_seconds": 299}, "max_age_seconds"),
         ({"max_age_seconds": 31_536_001}, "max_age_seconds"),
         ({"max_age_seconds": True}, "max_age_seconds"),
@@ -331,10 +362,13 @@ def test_longest_allowed_url_and_query_sent(octen_cls: MagicMock) -> None:
         ({"include_links": {"max_links": 1001}}, "include_links"),
         ({"include_links": {"scope": "all"}}, "include_links"),
         ({"include_links": {"limit": 5}}, "include_links"),
-        ({"request_timeout": 0}, "request_timeout"),
-        ({"request_timeout": float("nan")}, "request_timeout"),
-        ({"request_timeout": True}, "request_timeout"),
-        ({"request_timeout": "90"}, "request_timeout"),
+        ({"timeout": 0}, "timeout"),
+        ({"timeout": -1}, "timeout"),
+        ({"timeout": float("nan")}, "timeout"),
+        ({"timeout": float("inf")}, "timeout"),
+        ({"timeout": True}, "timeout"),
+        ({"timeout": "90"}, "timeout"),
+        ({"timeout": 10**400}, "timeout"),
     ],
     ids=lambda v: v if isinstance(v, str) else None,
 )
@@ -351,8 +385,8 @@ def test_invalid_option_raises_at_construction(
     [
         {"max_urls": 1},
         {"max_urls": 20},
-        {"timeout": 1},
-        {"timeout": 60},
+        {"url_timeout": 1},
+        {"url_timeout": 60},
         {"max_age_seconds": 300},
         {"max_age_seconds": 31_536_000},
         {"mode": "standard"},
@@ -364,7 +398,8 @@ def test_invalid_option_raises_at_construction(
         {"include_links": {"scope": "prefer_internal", "max_links": 1}},
         {"include_links": {"max_links": 1000}},
         {"include_images": False, "include_videos": False, "include_audio": False},
-        {"request_timeout": 0.5},
+        {"timeout": 0.5},
+        {"timeout": 600},
     ],
 )
 def test_option_bounds_accepted(options: Dict[str, Any]) -> None:
@@ -372,7 +407,8 @@ def test_option_bounds_accepted(options: Dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize(
-    "key", ["urls", "query", "count", "highlight", "full_content", "socket_timeout"]
+    "key",
+    ["urls", "query", "count", "highlight", "full_content", "request_timeout", "socket_timeout"],
 )
 def test_model_or_unknown_key_rejected_as_option(key: str) -> None:
     with pytest.raises(ValueError, match=f"extract_options does not accept '{key}'"):
