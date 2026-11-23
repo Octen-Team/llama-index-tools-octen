@@ -816,3 +816,64 @@ def test_premier_options_deep_copied(octen_cls: MagicMock) -> None:
     kwargs = _sdk_method(octen_cls, "search_premier").call_args.kwargs
     assert kwargs["include_text"] == ["kafka"]
     assert kwargs["highlight"] == {"enable": True, "max_tokens": 300}
+
+
+def test_broad_search_options_result_type_reaches_sdk(octen_cls: MagicMock) -> None:
+    _spec(broad_search_options={"result_type": "dynamic"}).broad_search("q")
+    kwargs = _sdk_method(octen_cls, "broad_search").call_args.kwargs
+    assert kwargs["result_type"] == "dynamic"
+
+
+def test_result_type_is_not_sent_by_broad_search_unless_set(octen_cls: MagicMock) -> None:
+    _spec(broad_search_options={"count": 2}).broad_search("q")
+    assert "result_type" not in _sdk_method(octen_cls, "broad_search").call_args.kwargs
+
+
+@pytest.mark.parametrize("value", ["fast", "Dynamic", "", " "])
+def test_broad_search_options_bad_result_type_raises_value_error(value: str) -> None:
+    with pytest.raises(ValueError, match="broad_search_options.*result_type"):
+        _spec(broad_search_options={"result_type": value})
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        "news_search_options",
+        "business_search_options",
+        "pulse_search_options",
+        "place_search_options",
+    ],
+)
+def test_result_type_is_out_of_scope_for_other_endpoints(option: str) -> None:
+    # Only Web Search, Broad Search and Premier take it; the other endpoints share
+    # _COMMON_OPTIONS, which must not carry it.
+    with pytest.raises(ValueError, match=f"{option} does not accept 'result_type'"):
+        _spec(**{option: {"result_type": "dynamic"}})
+
+
+def test_result_type_is_never_a_model_facing_argument() -> None:
+    tools = {t.metadata.name: t for t in _spec().to_tool_list()}
+    assert set(tools) == set(OctenToolSpec.spec_functions)
+    for name, tool in tools.items():
+        schema = tool.metadata.fn_schema
+        assert schema is not None, name
+        assert "result_type" not in schema.model_json_schema().get("properties", {}), name
+        assert "result_type" not in tool.metadata.description, name
+
+
+def test_search_options_names_match_real_sdk_signature() -> None:
+    # No mocks: if the installed octen predates result_type, this fails instead of
+    # the call failing with TypeError at run time.
+    from octen.resources.search import SearchResource
+
+    from llama_index.tools.octen.base import _ALLOWED_OPTIONS
+
+    assert _ALLOWED_OPTIONS["search_options"] == {"result_type"}
+    assert _ALLOWED_OPTIONS["search_options"] <= _signature_params(SearchResource.search)
+    assert "result_type" in _signature_params(SearchResource.broad_search)
+
+
+def test_common_options_do_not_carry_result_type() -> None:
+    from llama_index.tools.octen.base import _COMMON_OPTIONS
+
+    assert "result_type" not in _COMMON_OPTIONS

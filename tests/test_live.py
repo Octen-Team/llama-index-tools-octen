@@ -69,6 +69,87 @@ def test_live_broad_search() -> None:
     assert any(group.get("results") for group in groups), groups
 
 
+def _record_sdk_calls(monkeypatch: Any, method: str) -> List[Any]:
+    """(kwargs, response) of every real SDK call to SearchResource.<method>."""
+    from octen.resources.search import SearchResource
+
+    calls: List[Any] = []
+    original = getattr(SearchResource, method)
+
+    def record(self: SearchResource, *args: Any, **kwargs: Any) -> Any:
+        response = original(self, *args, **kwargs)
+        calls.append((kwargs, response))
+        return response
+
+    monkeypatch.setattr(SearchResource, method, record)
+    return calls
+
+
+@pytest.mark.parametrize(
+    "function",
+    ["search", "search_and_retrieve_documents", "search_and_retrieve_highlights"],
+)
+def test_live_search_options_result_type_dynamic(monkeypatch: Any, function: str) -> None:
+    # The request still goes to production. The echo in meta is the discriminator: a
+    # dropped option comes back as "standard". With dynamic, count is only a maximum.
+    calls = _record_sdk_calls(monkeypatch, "search")
+    spec = _spec(search_options={"result_type": "dynamic"})
+    results = getattr(spec, function)("Octen web search API", num_results=3)
+    assert len(calls) == 1
+    kwargs, response = calls[0]
+    print(f"\n[live] {function} request_id={(response.model_extra or {}).get('request_id')}")
+    assert kwargs["result_type"] == "dynamic"
+    assert response.meta.get("result_type") == "dynamic"
+    assert len(results) <= 3
+
+
+# Observed 2026-11-23: dynamic highlights were about a quarter to a third as long as
+# standard ones on this query, but the effect depends on the query. A skip means no
+# evidence this run, not a defect; the forwarding assertions and the offline test that
+# pins the request body are the hard checks.
+BROAD_QUERY = "EU AI Act enforcement timeline"
+
+
+def _highlight_lengths(response: Any) -> Dict[str, int]:
+    """url -> highlight length; results without a url are ignored, repeated urls count once."""
+    lengths: Dict[str, int] = {}
+    for group in response.search_results:
+        for result in group.get("results") or []:
+            url = result.get("url")
+            if url and url not in lengths:
+                lengths[url] = len(result.get("highlight") or "")
+    return lengths
+
+
+def test_live_broad_search_result_type_dynamic_shortens_highlights_or_skips(
+    monkeypatch: Any,
+) -> None:
+    calls = _record_sdk_calls(monkeypatch, "broad_search")
+    options = {"count": 3, "max_queries": 1, "highlight": {"enable": True}}
+    standard = _spec(broad_search_options={**options, "result_type": "standard"}).broad_search(
+        BROAD_QUERY
+    )
+    dynamic = _spec(broad_search_options={**options, "result_type": "dynamic"}).broad_search(
+        BROAD_QUERY
+    )
+    _check("broad_search standard", standard)
+    _check("broad_search dynamic", dynamic)
+
+    # What was sent is deterministic: a dropped option fails here instead of skipping below.
+    assert [kwargs.get("result_type") for kwargs, _ in calls] == ["standard", "dynamic"]
+    std_response, dyn_response = calls[0][1], calls[1][1]
+
+    std, dyn = _highlight_lengths(std_response), _highlight_lengths(dyn_response)
+    pairs = [(dyn[url], std[url]) for url in std if url in dyn]
+    print(f"queries {std_response.queries} / {dyn_response.queries}")
+    print(f"dynamic/standard highlight lengths={pairs}")
+    if std_response.queries != dyn_response.queries:
+        pytest.skip("queries differ: the two calls are not comparable")
+    halved = [(d, s) for d, s in pairs if d > 0 and s > 0 and d < s / 2]
+    if len(halved) < 2:
+        pytest.skip(f"fewer than 2 pairs under half ({len(halved)} of {len(pairs)} pairs)")
+
+
 def test_live_news_search() -> None:
     spec = _spec(
         news_search_options={
