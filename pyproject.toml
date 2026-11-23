@@ -14,7 +14,7 @@ dev = [
 
 [project]
 name = "llama-index-tools-octen"
-version = "0.4.0"
+version = "0.4.1"
 description = "llama-index tools Octen web search integration"
 authors = [{name = "Octen Team", email = "support@octen.ai"}]
 requires-python = ">=3.10,<4.0"
@@ -33,7 +33,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "octen>=0.13.0,<1",
+    "octen>=0.13.1,<1",
     "llama-index-core>=0.13.0,<0.15",
 ]
 

@@ -321,3 +321,36 @@ def test_existing_functions_send_the_same_requests(extra: Dict[str, Any]) -> Non
 def test_search_premier_sends_the_same_request(extra: Dict[str, Any]) -> None:
     captured = _capture([PREMIER_CALL], extra)
     assert json.dumps(captured) == json.dumps(EXPECTED_PREMIER)
+
+
+# Not captured from an earlier release: result_type is new in 0.4.1. The expected
+# bodies come from the OpenAPI field name and position: WebSearchOptions.result_type is
+# a top-level field of the /search request and sits inside search_options for /broad-search.
+def test_search_result_type_is_a_top_level_field() -> None:
+    old_args: Dict[str, Any] = {"num_results": 3}
+    for function in (
+        "search",
+        "search_and_retrieve_documents",
+        "search_and_retrieve_highlights",
+    ):
+        calls = _capture(
+            [(function, {"search_options": {"result_type": "dynamic"}}, old_args)], {}
+        )
+        method, endpoint, body, _ = calls[function]
+        assert (method, endpoint) == ("POST", "/search"), function
+        assert body["result_type"] == "dynamic", function
+        assert body["query"] == "q" and body["count"] == 3, function
+        assert "search_options" not in body, function
+        # Setting the option adds one key and changes nothing else.
+        plain = _capture([(function, {}, old_args)], {})[function][2]
+        assert "result_type" not in plain, function
+        assert {k: v for k, v in body.items() if k != "result_type"} == plain, function
+
+
+def test_broad_search_result_type_is_inside_search_options() -> None:
+    spec_kwargs = {"broad_search_options": {"count": 2, "result_type": "dynamic"}}
+    calls = _capture([("broad_search", spec_kwargs, {})], {})
+    method, endpoint, body, _ = calls["broad_search"]
+    assert (method, endpoint) == ("POST", "/broad-search")
+    assert body == {"query": "q", "search_options": {"count": 2, "result_type": "dynamic"}}
+    assert "result_type" not in body

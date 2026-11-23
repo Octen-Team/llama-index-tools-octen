@@ -241,3 +241,89 @@ def test_search_description_routes_to_new_functions() -> None:
     description = tools["search"].description
     for name in ["news_search", "business_search", "pulse_search", "broad_search", "place_search"]:
         assert name in description, name
+
+
+WEB_SEARCH_FUNCTIONS = [
+    "search",
+    "search_and_retrieve_documents",
+    "search_and_retrieve_highlights",
+]
+
+
+@pytest.mark.parametrize("function", WEB_SEARCH_FUNCTIONS)
+def test_search_options_result_type_reaches_every_web_search_function(
+    octen_cls: MagicMock, function: str
+) -> None:
+    spec = OctenToolSpec(
+        api_key="k", verbose=False, search_options={"result_type": "dynamic"}
+    )
+    getattr(spec, function)("q")
+    kwargs = octen_cls.return_value.search.search.call_args.kwargs
+    assert kwargs["result_type"] == "dynamic"
+
+
+@pytest.mark.parametrize("function", WEB_SEARCH_FUNCTIONS)
+@pytest.mark.parametrize("options", [None, {}])
+def test_result_type_is_not_sent_unless_set(
+    octen_cls: MagicMock, function: str, options: Optional[dict]
+) -> None:
+    spec = OctenToolSpec(api_key="k", verbose=False, search_options=options)
+    getattr(spec, function)("q")
+    assert "result_type" not in octen_cls.return_value.search.search.call_args.kwargs
+
+
+@pytest.mark.parametrize("function", WEB_SEARCH_FUNCTIONS)
+@pytest.mark.parametrize("results", [[], [{"title": "T", "url": "https://a.com", "highlight": "h"}]])
+def test_dynamic_result_type_with_fewer_results_returns_normally(
+    octen_cls: MagicMock, function: str, results: list
+) -> None:
+    # With dynamic, count is a maximum: zero or one result is a normal answer.
+    octen_cls.return_value.search.search.return_value = MagicMock(results=results)
+    spec = OctenToolSpec(
+        api_key="k", verbose=False, search_options={"result_type": "dynamic"}
+    )
+    returned = getattr(spec, function)("q", num_results=5)
+    assert len(returned) == len(results)
+
+
+@pytest.mark.parametrize(
+    ("options", "mentions"),
+    [
+        ({"result_type": "fast"}, "result_type"),
+        ({"result_type": "Dynamic"}, "result_type"),
+        ({"result_type": ""}, "result_type"),
+        ({"result_type": " "}, "result_type"),
+        ({"count": 3}, "count"),
+        ({"highlight": {"enable": True}}, "highlight"),
+        ({"timeout": 5}, "timeout"),
+    ],
+)
+def test_search_options_rejects_other_keys_and_bad_values(
+    octen_cls: MagicMock, options: dict, mentions: str
+) -> None:
+    # A bad value raises ValueError from the SDK model; an unknown key must
+    # raise ValueError as well, never the KeyError of a missing validator.
+    with pytest.raises(ValueError, match=f"search_options.*{mentions}"):
+        OctenToolSpec(api_key="k", search_options=options)
+    octen_cls.assert_not_called()
+
+
+@pytest.mark.parametrize("value", ["standard", "dynamic"])
+def test_search_options_accepts_both_result_types(value: str) -> None:
+    OctenToolSpec(api_key="k", search_options={"result_type": value})
+
+
+def test_search_options_is_deep_copied(octen_cls: MagicMock) -> None:
+    options = {"result_type": "dynamic"}
+    spec = OctenToolSpec(api_key="k", verbose=False, search_options=options)
+    options["result_type"] = "fast"
+    spec.search("q")
+    assert octen_cls.return_value.search.search.call_args.kwargs["result_type"] == "dynamic"
+
+
+def test_search_options_is_keyword_only() -> None:
+    from inspect import Parameter, signature
+
+    param = signature(OctenToolSpec.__init__).parameters["search_options"]
+    assert param.kind is Parameter.KEYWORD_ONLY
+    assert param.default is None

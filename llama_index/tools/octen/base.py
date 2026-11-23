@@ -506,7 +506,9 @@ _COMMON_OPTIONS = frozenset({"count", "highlight", "full_content", "timeout"})
 # Developer-owned options per endpoint. Everything else is either model-facing
 # or not exposed, so it is rejected at construction.
 _ALLOWED_OPTIONS: Dict[str, FrozenSet[str]] = {
-    "broad_search_options": _COMMON_OPTIONS | {"max_queries"},
+    # Web Search takes only this one developer option; the rest is model-facing.
+    "search_options": frozenset({"result_type"}),
+    "broad_search_options": _COMMON_OPTIONS | {"max_queries", "result_type"},
     "news_search_options": _COMMON_OPTIONS | {"subjects"},
     "business_search_options": _COMMON_OPTIONS | {"entities"},
     "pulse_search_options": _COMMON_OPTIONS | {"mode"},
@@ -669,6 +671,7 @@ def _validate_option_values(name: str, options: Dict[str, Any]) -> None:
                 octen.BroadSearchRequest(query=query, max_queries=max_queries)
         else:
             request_model = {
+                "search_options": octen.SearchRequest,
                 "news_search_options": octen.NewsSearchRequest,
                 "business_search_options": octen.BusinessSearchRequest,
                 "pulse_search_options": octen.PulseSearchRequest,
@@ -876,6 +879,7 @@ class OctenToolSpec(BaseToolSpec):
         max_characters: int = 2000,
         timeout: Optional[float] = None,
         *,
+        search_options: Optional[Dict[str, Any]] = None,
         broad_search_options: Optional[Dict[str, Any]] = None,
         news_search_options: Optional[Dict[str, Any]] = None,
         business_search_options: Optional[Dict[str, Any]] = None,
@@ -895,8 +899,13 @@ class OctenToolSpec(BaseToolSpec):
             max_results: Default number of results to return.
             max_characters: Max characters for full content retrieval.
             timeout: Request timeout in seconds.
+            search_options: Options sent on every search,
+                search_and_retrieve_documents and search_and_retrieve_highlights
+                call: result_type. Unrelated to the API's Broad Search
+                search_options field; Broad Search options go in
+                broad_search_options.
             broad_search_options: Options sent on every broad_search call:
-                count, highlight, full_content, max_queries, timeout.
+                count, result_type, highlight, full_content, max_queries, timeout.
             news_search_options: Options sent on every news_search call:
                 count, highlight, full_content, subjects, timeout.
             business_search_options: Options sent on every business_search
@@ -932,6 +941,7 @@ class OctenToolSpec(BaseToolSpec):
             )
         _check_timeout("OctenToolSpec", timeout)
         given = {
+            "search_options": search_options,
             "broad_search_options": broad_search_options,
             "news_search_options": news_search_options,
             "business_search_options": business_search_options,
@@ -1046,6 +1056,9 @@ class OctenToolSpec(BaseToolSpec):
             kwargs["safesearch"] = safesearch
         if format is not None:
             kwargs["format"] = format
+        result_type = self._options["search_options"].get("result_type")
+        if result_type is not None:
+            kwargs["result_type"] = result_type
         if self._timeout is not None:
             kwargs["timeout"] = self._timeout
         return kwargs
