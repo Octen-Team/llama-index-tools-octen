@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.1
+
+### Added
+
+- `result_type` as a developer option for Web Search and Broad Search. It
+  determines how results are returned: `"standard"` returns results as your
+  options specify; `"dynamic"` returns only relevant results, up to `count`, and
+  adjusts highlight length per result. With `"dynamic"` a call can return fewer
+  results than requested, or none.
+  - Web Search: the new keyword-only constructor argument `search_options`
+    accepts `result_type` and applies it to `search`,
+    `search_and_retrieve_documents` and `search_and_retrieve_highlights`. It is
+    unrelated to the `search_options` field of the API's Broad Search request.
+  - Broad Search: `broad_search_options` now accepts `result_type`.
+  - The model never sees or sets it: no function signature or tool schema
+    changes. Any value other than `"standard"` or `"dynamic"` raises
+    `ValueError` when the spec is built, and `search_options` accepts no other
+    key. The other endpoints' options (news, business, pulse, place) still
+    reject it.
+  - When it is not set, requests are unchanged.
+
+### Changed
+
+- The `octen` requirement is now `>=0.13.1,<1`, the first release that accepts
+  `result_type` in `search()` and `broad_search()`. Upgrading this package also
+  upgrades `octen` if you are on 0.13.0.
+
 ## 0.4.0
 
 ### Upgrading from 0.3.x

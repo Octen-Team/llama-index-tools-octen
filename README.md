@@ -113,6 +113,20 @@ results = tool.search(
 )
 ```
 
+### Result Type
+
+`search`, `search_and_retrieve_documents` and `search_and_retrieve_highlights` take one developer option, set through the keyword-only constructor argument `search_options`: `result_type`. It determines how results are returned. `"standard"` returns results as your options specify; `"dynamic"` returns only relevant results, up to `count`, and adjusts highlight length per result. The model never sees or sets it.
+
+```python
+tool = OctenToolSpec(search_options={"result_type": "dynamic"})
+
+results = tool.search("latest AI research papers", num_results=5)
+```
+
+`standard` keeps the result count and the highlight cap as you set them. With `"dynamic"` the count is a maximum, so a call can return fewer results than `num_results`, or none, and Octen may adjust the highlight length per result. Any other value, including an empty string or different casing, raises `ValueError` when the spec is built, as does any other key in `search_options`.
+
+`search_options` is the developer options of these three Web Search functions. It is unrelated to the `search_options` field of the API's Broad Search request: Broad Search's developer options stay in `broad_search_options`, which also accepts `result_type` (see [below](#broad-news-business-pulse-and-place-search)).
+
 ## Web Search Premier
 
 `search_premier` searches the web with deeper retrieval and reranking, for questions that need the exact page holding the answer: a specific fact, a detail deep inside a page, a niche document or a named report. It takes the same request options and returns the same response shape as Web Search; for low-latency lookups use `search` instead. It follows the same design as the vertical functions below: the model sets only `query`, `include_domains` and `exclude_domains`, and everything else comes from `search_premier_options`.
@@ -127,7 +141,7 @@ for r in result["data"]["results"]:
     print(r["title"], r["url"])
 ```
 
-`search_premier_options` accepts `count` (1-100), `result_type` (`"standard"` or `"dynamic"`), `highlight` and `full_content` (only the `enable` and `max_tokens` keys), `include_text` and `exclude_text` (up to 5, 30 characters each), `language` (ISO 639-1 codes), `time_basis`, `time_range`, `start_time` and `end_time` (RFC 3339, e.g. `2025-01-01T00:00:00Z`), `format`, `safesearch`, `include_images` and `timeout`. `result_type="dynamic"` returns only relevant results, up to `count`, and adjusts the highlight length per result. Return value and errors are as described for the vertical functions below.
+`search_premier_options` accepts `count` (1-100), `result_type` (`"standard"` or `"dynamic"`), `highlight` and `full_content` (only the `enable` and `max_tokens` keys), `include_text` and `exclude_text` (up to 5, 30 characters each), `language` (ISO 639-1 codes), `time_basis`, `time_range`, `start_time` and `end_time` (RFC 3339, e.g. `2025-01-01T00:00:00Z`), `format`, `safesearch`, `include_images` and `timeout`. `result_type` works as described under [Result Type](#result-type). Return value and errors are as described for the vertical functions below.
 
 ## Extract
 
@@ -211,7 +225,7 @@ These five functions give the model only the query and filters. Billing-related 
 tool = OctenToolSpec(
     news_search_options={"count": 5, "subjects": {"count": 2}},
     place_search_options={"places": {"count": 3}},
-    broad_search_options={"max_queries": 5, "timeout": 90},
+    broad_search_options={"max_queries": 5, "result_type": "dynamic", "timeout": 90},
 )
 
 tool.news_search("EU AI Act enforcement", time_range="week")
@@ -220,7 +234,7 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 
 | Function | Arguments the model can set | Developer options (`<function>_options`) |
 |---|---|---|
-| `broad_search` | `query`, `include_domains`, `exclude_domains`, `time_range`, `language` | `count`, `highlight`, `full_content`, `max_queries`, `timeout` |
+| `broad_search` | `query`, `include_domains`, `exclude_domains`, `time_range`, `language` | `count`, `result_type`, `highlight`, `full_content`, `max_queries`, `timeout` |
 | `news_search` | `query`, `include_domains`, `exclude_domains`, `time_range`, `language` | `count`, `highlight`, `full_content`, `subjects`, `timeout` |
 | `business_search` | `query`, `include_domains`, `exclude_domains`, `time_range`, `language` | `count`, `highlight`, `full_content`, `entities`, `timeout` |
 | `pulse_search` | `query` | `count`, `highlight`, `full_content`, `mode`, `timeout` |
@@ -288,6 +302,7 @@ tool.place_search("coffee shops", latitude=35.6812, longitude=139.7671, radius=1
 | `max_results` | `int` | `5` | Default number of results |
 | `max_characters` | `int` | `2000` | Max characters for full content retrieval |
 | `timeout` | `float` | `None` | Request timeout in seconds |
+| `search_options` | `dict` | `None` | Keyword-only. Options for `search`, `search_and_retrieve_documents` and `search_and_retrieve_highlights`: `result_type` (see [Result Type](#result-type)) |
 | `broad_search_options` | `dict` | `None` | Keyword-only. Options for `broad_search` (see above) |
 | `news_search_options` | `dict` | `None` | Keyword-only. Options for `news_search` |
 | `business_search_options` | `dict` | `None` | Keyword-only. Options for `business_search` |
