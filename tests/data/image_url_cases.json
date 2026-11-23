@@ -1,0 +1,2025 @@
+{
+ "source": "Go net/url (go1.27) url.Parse + https scheme + non-empty, non-IP host, 2026-11-22",
+ "cases": [
+  {
+   "url": "https://ex!ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex\"ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex#ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex$ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex%ample.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://ex&ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex'ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex(ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex)ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex*ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex+ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex,ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex-ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex.ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex/ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex0ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex1ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex2ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex3ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex4ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex5ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex6ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex7ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex8ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex9ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex:ample.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://ex;ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex<ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex=ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex>ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex?ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex@ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exAample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exBample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exCample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exDample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exEample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exFample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exGample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exHample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exIample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exJample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exKample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exLample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exMample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exNample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exOample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exPample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exQample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exRample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exSample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exTample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exUample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exVample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exWample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exXample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exYample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exZample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex[ample.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://ex\\ample.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://ex]ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex^ample.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://ex_ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex`ample.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://exaample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exbample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://excample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exdample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exeample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exfample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exgample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exhample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exiample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exjample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exkample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exlample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exmample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exnample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exoample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://expample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exqample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exrample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exsample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://extample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exuample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exvample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exwample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exxample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exyample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://exzample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex{ample.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://ex|ample.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://ex}ample.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://ex~ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex\u00e9ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex\u00a0ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex\u4e2dample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex%41ample.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://ex%C3%A9ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex%25ample.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ex%zzample.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u!@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u\"@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u#@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u$@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u%@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u&@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u'@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u(@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u)@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u*@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u+@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u,@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u-@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u.@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u/@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u0@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u1@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u2@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u3@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u4@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u5@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u6@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u7@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u8@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u9@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u:@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u;@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u<@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u=@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u>@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u?@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u@@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uA@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uB@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uC@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uD@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uE@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uF@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uG@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uH@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uI@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uJ@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uK@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uL@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uM@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uN@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uO@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uP@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uQ@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uR@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uS@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uT@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uU@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uV@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uW@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uX@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uY@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uZ@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u[@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u\\@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u]@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u^@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u_@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u`@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://ua@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ub@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uc@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ud@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ue@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uf@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ug@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uh@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ui@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uj@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uk@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ul@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://um@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://un@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uo@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://up@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uq@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ur@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://us@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ut@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uu@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uv@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uw@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://ux@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uy@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://uz@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u{@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u|@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u}@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u~@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u\u00e9@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u\u00a0@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u\u4e2d@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://u%41@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u%C3%A9@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u%25@example.com/a.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://u%zz@example.com/a.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://example.com/a!.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a\".png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a#.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a$.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a%.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://example.com/a&.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a'.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a(.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a).png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a*.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a+.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a,.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a-.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a..png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a/.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a0.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a1.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a2.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a3.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a4.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a5.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a6.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a7.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a8.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a9.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a:.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a;.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a<.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a=.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a>.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a?.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a@.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aA.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aB.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aC.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aD.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aE.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aF.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aG.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aH.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aI.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aJ.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aK.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aL.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aM.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aN.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aO.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aP.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aQ.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aR.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aS.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aT.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aU.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aV.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aW.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aX.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aY.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aZ.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a[.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a\\.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a].png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a^.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a_.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a`.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aa.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ab.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ac.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ad.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ae.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/af.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ag.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ah.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ai.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aj.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ak.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/al.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/am.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/an.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ao.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ap.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aq.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ar.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/as.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/at.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/au.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/av.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/aw.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ax.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/ay.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/az.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a{.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a|.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a}.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a~.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a\u00e9.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a\u00a0.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a\u4e2d.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a%41.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a%C3%A9.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a%25.png",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a%zz.png",
+   "server_accepts": false
+  },
+  {
+   "url": "https://example.com/a.png?q=!",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=\"",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=#",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=$",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=%",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=&",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q='",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=(",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=)",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=*",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=+",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=,",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=-",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=.",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=/",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=0",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=1",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=2",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=3",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=4",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=5",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=6",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=7",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=8",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=9",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=:",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=;",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=<",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q==",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=>",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=?",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=@",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=A",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=B",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=C",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=D",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=E",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=F",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=G",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=H",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=I",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=J",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=K",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=L",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=M",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=N",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=O",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=P",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=Q",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=R",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=S",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=T",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=U",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=V",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=W",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=X",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=Y",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=Z",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=[",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=\\",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=]",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=^",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=_",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=`",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=a",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=b",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=c",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=d",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=e",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=f",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=g",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=h",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=i",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=j",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=k",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=l",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=m",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=n",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=o",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=p",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=q",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=r",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=s",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=t",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=u",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=v",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=w",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=x",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=y",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=z",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q={",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=|",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=}",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=~",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=\u00e9",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=\u00a0",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=\u4e2d",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=%41",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=%C3%A9",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=%25",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png?q=%zz",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#!",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#\"",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png##",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#$",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#%",
+   "server_accepts": false
+  },
+  {
+   "url": "https://example.com/a.png#&",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#'",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#(",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#)",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#*",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#+",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#,",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#-",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#.",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#/",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#0",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#1",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#2",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#3",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#4",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#5",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#6",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#7",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#8",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#9",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#:",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#;",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#<",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#=",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#>",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#?",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#@",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#A",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#B",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#C",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#D",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#E",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#F",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#G",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#H",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#I",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#J",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#K",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#L",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#M",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#N",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#O",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#P",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#Q",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#R",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#S",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#T",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#U",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#V",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#W",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#X",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#Y",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#Z",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#[",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#\\",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#]",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#^",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#_",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#`",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#a",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#b",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#c",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#d",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#e",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#f",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#g",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#h",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#i",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#j",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#k",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#l",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#m",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#n",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#o",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#p",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#q",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#r",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#s",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#t",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#u",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#v",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#w",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#x",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#y",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#z",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#{",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#|",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#}",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#~",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#\u00e9",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#\u00a0",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#\u4e2d",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#%41",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#%C3%A9",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#%25",
+   "server_accepts": true
+  },
+  {
+   "url": "https://example.com/a.png#%zz",
+   "server_accepts": false
+  }
+ ]
+}

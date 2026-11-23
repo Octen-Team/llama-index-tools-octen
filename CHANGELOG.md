@@ -1,5 +1,89 @@
 # Changelog
 
+## 0.4.0
+
+### Upgrading from 0.3.x
+
+Existing functions are unchanged: same parameters, same requests, same return
+shapes and errors. The `octen` requirement stays `>=0.13.0,<1`, which already
+has both new endpoints. One thing changes:
+
+- **`to_tool_list()` now returns thirteen tools instead of eleven.** An agent
+  built with `OctenToolSpec(...).to_tool_list()` also gets `image_search` and
+  `design_search`, and the model may call them; they have their own pricing.
+  To keep the 0.3.x tool set:
+
+  ```python
+  spec = OctenToolSpec()
+  tools = spec.to_tool_list(
+      spec_functions=[
+          f for f in spec.spec_functions if f not in ("image_search", "design_search")
+      ]
+  )
+  ```
+
+### Added
+
+- `image_search`: Image Search, finds images on the web by a text query or by
+  a reference image.
+  - The model passes exactly one of `query` (text, max 500 characters) or
+    `image_url` (a public https URL with a domain name, not an IP address, as
+    the API requires), plus optional `include_domains` and `exclude_domains` (at
+    most 10 each, matched against each result's source page). Both inputs,
+    neither, an `image_url` that is not an https URL with a domain name (or that
+    holds ASCII whitespace or control characters), or a value over a limit is
+    returned to the model before any request; a valid `image_url` is sent
+    exactly as given. Base64 image input is not offered to the model; call the `octen`
+    SDK directly for it.
+  - `count` (1-10), `safesearch` (`"off"` or `"strict"`) and `timeout` come from
+    the new keyword-only constructor argument `image_search_options`, checked
+    when the spec is built.
+  - An HTTP 413 (image too large) or 415 (unsupported image format) is returned
+    to the model with a suggestion to try a smaller image in a supported format
+    or a text query, instead of being raised. For a call by `image_url`, errors
+    handed to the model are fixed messages with the status and request id, without
+    the upstream error text; errors raised to you keep their class, status and
+    request id but carry a fixed message, no response body and no chained cause.
+    This covers the package's own messages and logs only: LlamaIndex callbacks
+    and instrumentation can record the raw `image_url` argument, so disable or
+    redact input tracing when passing signed URLs.
+- `design_search`: Design Search, finds design references: screenshots of web
+  pages, page sections, app screens and slides with their design values, plus
+  web results on the same query.
+  - The model sets `query` (max 500 characters) and `group_id` (max 127
+    characters, as the API requires), taken from an
+    earlier result's `group`, to get that web page's or deck's images in group
+    order, up to `images.count` (the API default is 5); the tool description
+    states that limit. `query` is required unless `group_id` is set; a call with
+    neither is returned to the model before any request. With
+    `images={"enable": False}` the description and argument schema offer no
+    `group_id` and require `query`; a `group_id` call without `query` is returned
+    to the model, and one with `query` does not forward `group_id`. With
+    `web_search={"enable": False}` the description promises no web results;
+    turning off both raises `ValueError`, as does a `web_search` time range that
+    ends before it starts.
+  - `images` (`enable`, `count` 1-100, `design_facts`, and `snippet` with
+    `enable` and `max_tokens` 100-100000; `group_id` is not accepted here),
+    `web_search` (`enable`, `count`, `highlight`, `full_content`, domain,
+    language and time filters) and `timeout` come from the new keyword-only
+    constructor argument `design_search_options`, checked when the spec is
+    built. Left out, the API defaults apply, which return `design_facts` and a
+    `snippet` of up to 5000 tokens for each image that has reusable code; turn
+    them off with `images={"design_facts": False, "snippet": {"enable": False}}`
+    or shorten snippets with `snippet.max_tokens`.
+- Both return `{"data", "request_id", "warning"?}`, with `data` as the API
+  returns it, and split errors as the other functions do. Numbers and booleans
+  in both options dicts are checked strictly: `True` or `5.0` is not accepted
+  as a count.
+
+### Fixed
+
+- `broad_search`, `news_search`, `business_search` and `search_premier` no
+  longer drop `include_domains`, `exclude_domains` or `language` when it is
+  passed as a one-shot iterable such as a generator. Validation used to consume
+  the iterable, so an empty one was sent and the filter was silently not
+  applied. Lists are sent as before.
+
 ## 0.3.0
 
 ### Upgrading from 0.2.x

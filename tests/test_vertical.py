@@ -84,6 +84,8 @@ def test_spec_functions_list() -> None:
         "place_search",
         "search_premier",
         "extract",
+        "image_search",
+        "design_search",
         "current_date",
     ]
 
@@ -202,6 +204,44 @@ def test_developer_options_forwarded(
     getattr(spec, function)("q", **model_args)
     _sdk_method(octen_cls, function).assert_called_once_with(query="q", **expected)
     octen_cls.assert_called_once_with(api_key="k", retry_after_send=False)
+
+
+@pytest.mark.parametrize("function", FILTERED)
+def test_list_filter_generators_reach_the_sdk_as_lists(
+    octen_cls: MagicMock, function: str
+) -> None:
+    # A one-shot iterable must not be used up by validation and forwarded empty.
+    getattr(_spec(), function)(
+        "q",
+        include_domains=(d for d in ["a.com", "b.com"]),
+        exclude_domains=iter(["c.com"]),
+        language=(code for code in ["en"]),
+    )
+    _sdk_method(octen_cls, function).assert_called_once_with(
+        query="q", include_domains=["a.com", "b.com"], exclude_domains=["c.com"],
+        language=["en"],
+    )
+
+
+@pytest.mark.parametrize("function", NEW_FUNCTIONS)
+def test_non_string_query_iterator_rejected_without_being_consumed(
+    octen_cls: MagicMock, function: str
+) -> None:
+    # Only the list filters are turned into lists; a query iterator is a model mistake.
+    query = iter(["a", "b"])
+    result = getattr(_spec(), function)(query)
+    assert set(result) == {"error"} and "query" in result["error"]
+    assert list(query) == ["a", "b"]
+    octen_cls.assert_not_called()
+
+
+def test_premier_domain_generators_reach_the_sdk_as_lists(octen_cls: MagicMock) -> None:
+    _spec().search_premier(
+        "q", include_domains=(d for d in ["a.com"]), exclude_domains=iter(["b.com"])
+    )
+    _sdk_method(octen_cls, "search_premier").assert_called_once_with(
+        query="q", include_domains=["a.com"], exclude_domains=["b.com"]
+    )
 
 
 @pytest.mark.parametrize("function", NEW_FUNCTIONS)

@@ -77,7 +77,9 @@ def _tools(**kwargs: Any) -> Dict[str, Any]:
 
 
 def test_extract_listed_before_current_date() -> None:
-    assert OctenToolSpec.spec_functions[-2:] == ["extract", "current_date"]
+    # The full list is pinned in test_vertical.test_spec_functions_list.
+    functions = OctenToolSpec.spec_functions
+    assert functions.index("extract") < functions.index("current_date")
     assert "extract" in _tools()
 
 

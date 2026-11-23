@@ -2,8 +2,9 @@
 
 Skipped unless OCTEN_LIVE=1 and OCTEN_API_KEY are set. Each test makes at
 most one billed request with the smallest result count the endpoint allows,
-except the search_premier and extract tests, which make two or three (options
-under test and same-input controls) with a small count or one to three URLs.
+except the search_premier, extract, image_search and design_search tests, which
+make two to four (options under test and same-input controls) with a small count
+or one to three URLs.
 """
 
 import os
@@ -421,3 +422,210 @@ def test_live_extract_model_cannot_pass_mode() -> None:
 def test_live_extract_bad_option_raises_at_construction() -> None:
     with pytest.raises(ValueError, match="extract_options.*max_urls"):
         _spec(extract_options={"max_urls": 21})
+
+
+# The URL does not name its subject. Per https://unsplash.com/photos/Q0-fOL2nqZc (title and
+# alt text "Eiffel tower during daytime", checked 2026-11-22) it shows the Eiffel Tower.
+REFERENCE_IMAGE = "https://images.unsplash.com/photo-1511739001486-6bfe10ce785f?w=800&fm=jpg"
+IMAGE_QUERY = "golden retriever puppy"
+
+
+def _image_hosts(items: List[Dict[str, Any]]) -> List[str]:
+    return [urlparse(i.get("source_page", "")).hostname or "" for i in items]
+
+
+def _check_images(name: str, result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    _check(name, result)
+    items = result["data"]["results"]
+    print(f"{name}: {len(items)} results, hosts={_image_hosts(items)}")
+    for item in items:
+        assert item.get("url", "").startswith("http"), item
+    return items
+
+
+def test_live_image_search_by_text_count_and_domains() -> None:
+    control = _check_images("image control", _spec().image_search(IMAGE_QUERY))
+    assert len(control) > 2, control  # the API default count is 5
+    assert all(i.get("source_page") for i in control), control
+
+    capped = _check_images(
+        "image count=2", _spec(image_search_options={"count": 2}).image_search(IMAGE_QUERY)
+    )
+    assert 0 < len(capped) <= 2, capped
+
+    # Exclude the most common source host of the control; the filtered call drops it.
+    hosts = _image_hosts(control)
+    top = max(set(hosts), key=hosts.count)
+    domain = top[4:] if top.startswith("www.") else top
+    excluded = _check_images(
+        "image exclude_domains", _spec().image_search(IMAGE_QUERY, exclude_domains=[domain])
+    )
+    assert excluded and not any(_on(h, domain) for h in _image_hosts(excluded)), excluded
+
+    included = _check_images(
+        "image include_domains",
+        _spec().image_search(IMAGE_QUERY, include_domains=["wikimedia.org"]),
+    )
+    assert any(not _on(h, "wikimedia.org") for h in hosts), control
+    assert included and all(_on(h, "wikimedia.org") for h in _image_hosts(included)), included
+
+
+def test_live_image_search_by_url_and_safesearch(mocker: Any) -> None:
+    from octen.core.http_client import HTTPClient
+
+    spy = mocker.spy(HTTPClient, "request")
+    spec = _spec(image_search_options={"count": 3, "safesearch": "off"})
+    items = _check_images("image by url", spec.image_search(image_url=REFERENCE_IMAGE))
+    assert 0 < len(items) <= 3, items
+    # Results about the pictured subject show the image was used, not ignored.
+    print(f"titles={[i.get('title') for i in items]}")
+    texts = [f"{i.get('title') or ''} {i.get('description') or ''}" for i in items]
+    assert any(re.search(r"eiffel", t, re.I) for t in texts), texts
+    body = spy.call_args.kwargs["json"]
+    print(f"wire body={body}")
+    assert body["inputs"] == [{"type": "image", "url": REFERENCE_IMAGE}]
+    assert body["safesearch"] == "off"
+
+
+def test_live_image_search_violations_send_nothing(mocker: Any) -> None:
+    from octen.resources.image_search import ImageSearchResource
+
+    spy = mocker.spy(ImageSearchResource, "search")
+    both = _spec().image_search("cats", image_url=REFERENCE_IMAGE)
+    neither = _spec().image_search()
+    assert "not both" in both["error"] and "Got neither" in neither["error"]
+    tools = {t.metadata.name: t for t in _spec().to_tool_list()}
+    with pytest.raises(TypeError, match="count"):
+        tools["image_search"].call(query="cats", count=10)
+    with pytest.raises(ValueError, match="image_search_options.*count"):
+        _spec(image_search_options={"count": 11})
+    spy.assert_not_called()
+
+
+DESIGN_QUERY = "pricing section for a SaaS landing page"
+
+
+def _check_design(name: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    _check(name, result)
+    data = result["data"]
+    images, web = data.get("images"), data.get("results")
+    print(f"{name}: images={None if images is None else len(images)} "
+          f"web={None if web is None else len(web)} "
+          f"groups={[(i.get('group') or {}).get('group_id', '')[:24] for i in images or []]}")
+    for image in images or []:
+        assert image.get("url", "").startswith("http") and image.get("type"), image
+    return data
+
+
+def _base_url(image: Dict[str, Any]) -> str:
+    # Image URLs carry a signed query string that may differ between calls.
+    return str(image.get("url", "")).split("?")[0]
+
+
+def test_live_design_search_image_options() -> None:
+    # Same query and image count; the control turns design facts and snippets on. The web
+    # options differ only in full_content.
+    on = {"images": {"count": 3, "design_facts": True, "snippet": {"enable": True}}}
+    control = _check_design(
+        "design control", _spec(design_search_options=on).design_search(DESIGN_QUERY)
+    )
+    print(f"control snippet={[bool(i.get('snippet')) for i in control['images']]} "
+          f"design_facts={[bool(i.get('design_facts')) for i in control['images']]}")
+    assert not any(r.get("full_content") for r in control["results"]), control["results"]
+    assert 0 < len(control["images"]) <= 3, control
+
+    off = {
+        "images": {"count": 3, "design_facts": False, "snippet": {"enable": False}},
+        "web_search": {"full_content": {"enable": True, "max_tokens": 200}},
+    }
+    turned_off = _check_design(
+        "design options", _spec(design_search_options=off).design_search(DESIGN_QUERY)
+    )
+    # Matched by URL without the signed query string, not by position.
+    by_url = {_base_url(i): i for i in control["images"]}
+    matched = [(by_url[_base_url(i)], i) for i in turned_off["images"] if _base_url(i) in by_url]
+    print(f"matched images={len(matched)} of {len(turned_off['images'])}")
+    assert 0 < len(turned_off["images"]) <= 3, turned_off
+    assert any(before.get("snippet") for before, _ in matched), matched
+    assert any(before.get("design_facts") for before, _ in matched), matched
+    assert not any(i.get("design_facts") or i.get("snippet") for i in turned_off["images"])
+    assert turned_off["results"], turned_off
+    assert all(r.get("full_content") for r in turned_off["results"]), turned_off["results"]
+
+
+def test_live_design_search_group_follow_up_respects_count() -> None:
+    # Request fewer images than the group has and fewer than the API default (5),
+    # so a dropped images.count would return more than requested.
+    seeds = _check_design(
+        "design group seed",
+        _spec(design_search_options={"images": {"count": 3}}).design_search(DESIGN_QUERY),
+    )
+    grouped = [i for i in seeds["images"] if (i.get("group") or {}).get("total", 0) >= 3]
+    assert grouped, "no image from a group of 3 or more: pick another DESIGN_QUERY"
+    seed = grouped[0]
+    group_id, position, total = (seed["group"][k] for k in ("group_id", "position", "total"))
+    requested = 2
+    follow = _check_design(
+        "design group_id count=2",
+        _spec(design_search_options={"images": {"count": requested}}).design_search(
+            group_id=group_id
+        ),
+    )
+    members = follow["images"]
+    ids = [i["group"]["group_id"] for i in members]
+    positions = [i["group"]["position"] for i in members]
+    print(f"group total={total} seed position={position} positions={positions}")
+    assert ids == [group_id] * requested, ids
+    assert positions == [1, 2], positions
+    if position <= requested:
+        same_slot = [i for i in members if i["group"]["position"] == position]
+        assert [_base_url(i) for i in same_slot] == [_base_url(seed)], (same_slot, seed)
+
+
+def _design_web(name: str, web_search: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    options: Dict[str, Any] = {"images": {"count": 1}}
+    if web_search is not None:
+        options["web_search"] = web_search
+    return _check_design(name, _spec(design_search_options=options).design_search(DESIGN_QUERY))
+
+
+def test_live_design_search_web_toggle_cap_and_domains(mocker: Any) -> None:
+    from octen.core.http_client import HTTPClient
+
+    off = _design_web("design web off", {"enable": False})
+    assert not off.get("results"), off
+    assert off["images"], off
+
+    # Each call below differs from the control in one web option only.
+    control = _design_web("design web control")
+    hosts = [urlparse(r["url"]).hostname or "" for r in control["results"]]
+    capped = _design_web("design web count=2", {"count": 2})
+    print(f"control web={len(control['results'])} capped web={len(capped['results'])}")
+    assert len(control["results"]) > 2, control
+    assert 0 < len(capped["results"]) <= 2, capped
+
+    assert any(r.get("highlight") for r in control["results"]), control["results"]
+    spy = mocker.spy(HTTPClient, "request")
+    plain = _design_web("design web highlight off", {"highlight": {"enable": False}})
+    print(f"highlight off body={spy.call_args.kwargs['json']['web_search']}")
+    assert spy.call_args.kwargs["json"]["web_search"]["highlight"]["enable"] is False
+    assert plain["results"] and not any(r.get("highlight") for r in plain["results"]), plain
+
+    domain = hosts[0][4:] if hosts[0].startswith("www.") else hosts[0]
+    filtered = _design_web("design web exclude_domains", {"exclude_domains": [domain]})
+    filtered_hosts = [urlparse(r["url"]).hostname or "" for r in filtered["results"]]
+    print(f"excluded {domain}: control={hosts} filtered={filtered_hosts}")
+    assert filtered_hosts and not any(_on(h, domain) for h in filtered_hosts), filtered_hosts
+
+
+def test_live_design_search_violations_send_nothing(mocker: Any) -> None:
+    from octen.resources.design_search import DesignSearchResource
+
+    spy = mocker.spy(DesignSearchResource, "search")
+    assert "Got neither" in _spec().design_search(query="  ")["error"]
+    tools = {t.metadata.name: t for t in _spec().to_tool_list()}
+    with pytest.raises(TypeError, match="images"):
+        tools["design_search"].call(query="q", images={"count": 100})
+    with pytest.raises(ValueError, match="images.group_id"):
+        _spec(design_search_options={"images": {"group_id": "pg_x"}})
+    spy.assert_not_called()
