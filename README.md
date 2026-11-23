@@ -123,7 +123,7 @@ tool = OctenToolSpec(search_options={"result_type": "dynamic"})
 results = tool.search("latest AI research papers", num_results=5)
 ```
 
-`standard` keeps the result count and the highlight cap as you set them. With `"dynamic"` the count is a maximum, so a call can return fewer results than `num_results`, or none, and Octen may adjust the highlight length per result. Any other value, including an empty string or different casing, raises `ValueError` when the spec is built, as does any other key in `search_options`.
+With the default `"standard"`, results are returned as your parameters specify. With `"dynamic"`, only relevant results come back, so the count is a maximum: a call can return fewer results than `num_results`, or none. `highlight.max_tokens` is a cap, and Octen may adjust the highlight length per result. Any other value, including an empty string or different casing, raises `ValueError` when the spec is built, as does any other key in `search_options`.
 
 `search_options` is the developer options of these three Web Search functions. It is unrelated to the `search_options` field of the API's Broad Search request: Broad Search's developer options stay in `broad_search_options`, which also accepts `result_type` (see [below](#broad-news-business-pulse-and-place-search)).
 

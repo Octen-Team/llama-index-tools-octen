@@ -143,8 +143,8 @@ def test_live_broad_search_result_type_dynamic_shortens_highlights_or_skips(
     pairs = [(dyn[url], std[url]) for url in std if url in dyn]
     print(f"queries {std_response.queries} / {dyn_response.queries}")
     print(f"dynamic/standard highlight lengths={pairs}")
-    if std_response.queries != dyn_response.queries:
-        pytest.skip("queries differ: the two calls are not comparable")
+    if not std_response.queries or std_response.queries != dyn_response.queries:
+        pytest.skip("queries missing or differ: the two calls are not comparable")
     halved = [(d, s) for d, s in pairs if d > 0 and s > 0 and d < s / 2]
     if len(halved) < 2:
         pytest.skip(f"fewer than 2 pairs under half ({len(halved)} of {len(pairs)} pairs)")
